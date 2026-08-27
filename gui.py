@@ -6,7 +6,6 @@ import json
 import os
 import queue
 import re
-import subprocess
 import sys
 import threading
 import time
@@ -33,6 +32,7 @@ if _THEME.exists():
 import yaml
 
 import council
+import keybridge as _kb
 
 PROTOCOLS = ("openai", "anthropic")
 SPIN_FRAMES = ["|", "/", "-", "\\"]
@@ -119,31 +119,12 @@ def load_raw():
 
 # ---- API Key 桥接：GUI 输入的密钥只进系统环境变量，config.yaml 只落 ${VAR:-} 模板 ----
 
-KNOWN_ENDPOINT_VARS = {
-    "ark_plan": "ARK_API_KEY",
-    "opencode_go": "GO_API_KEY",
-    "ccswitch": "CC_SWITCH_API_KEY",
-}
+# ---- API Key 桥接：实现统一收口在 keybridge.py，GUI 只留兼容别名 ----
 
-# 与 council._SECRET_LIKE 同规则：识别既有配置里误写的明文密钥以便自动迁移
-SECRET_LIKE_RE = re.compile(r"\b(?:sk|ark)-[A-Za-z0-9_-]{24,}")
-
-
-def resolve_key_var(endpoint_id, seat_hint=""):
-    """席位生效端点 -> 约定环境变量名；未知端点回退为按席位生成的专属变量。"""
-    v = KNOWN_ENDPOINT_VARS.get(endpoint_id or "")
-    if v:
-        return v
-    base = re.sub(r"[^A-Za-z0-9]+", "_", (seat_hint or "").upper()).strip("_")
-    return f"{base or 'CUSTOM'}_API_KEY"
-
-
-def key_env_hint(var):
-    """输入框占位文案：向用户说明当前凭据来源与覆盖方式。"""
-    loaded = os.environ.get(var)
-    if loaded:
-        return f"环境变量 {var} 已设（{loaded[:5]}***）；留空沿用，输入新值可覆盖"
-    return f"粘贴密钥（保存至用户环境变量 {var}，不写入 config.yaml）"
+KNOWN_ENDPOINT_VARS = _kb.KNOWN_ENDPOINT_VARS
+SECRET_LIKE_RE = re.compile(_kb.SECRET_LIKE_RE_RAW)
+resolve_key_var = _kb.resolve_key_var
+key_env_hint = _kb.key_env_hint
 
 
 class SeatEditor(ctk.CTkFrame):
@@ -759,13 +740,11 @@ class App(ctk.CTk):
             return
         # 先落环境变量再写配置模板；任一失败即中止，不产生半套状态
         for var, val in bridges.items():
-            r = subprocess.run(["setx", var, val], capture_output=True, text=True)
-            if r.returncode != 0:
+            err = _kb.apply_bridge(var, val)
+            if err:
                 from tkinter import messagebox
-                messagebox.showerror("环境变量写入失败",
-                                     f"{var}: {r.stderr.strip()}", parent=self)
+                messagebox.showerror("环境变量写入失败", err, parent=self)
                 return
-            os.environ[var] = val   # 页内 Ping 立即可用，无需重启 GUI
         council.write_text_retry(
             CONFIG_PATH,
             yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False,
