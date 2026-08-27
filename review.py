@@ -39,6 +39,37 @@ def _read(path, fallback="(文件尚不存在)"):
         return fallback
 
 
+PEER_ITEM_MAX = 4000    # 单份意见截断
+PEER_TOTAL_MAX = 20000  # 合计预算
+
+
+def _inline_peer_round(discuss_dir, marker):
+    """把指定轮次各评审意见原文内联进 prompt（带单项/总量截断）。
+
+    没有匹配文件时返回空串，prompt 回退为仅列文件名的旧行为。
+    """
+    files = sorted(p for p in Path(discuss_dir).glob(f"*{marker}*.md"))
+    if not files:
+        return ""
+    parts, used, dropped = [], 0, 0
+    for p in files:
+        body = _read(p, "").strip()
+        if not body or body == "(文件尚不存在)":
+            continue
+        cut = "…(后文截断)" if len(body) > PEER_ITEM_MAX else ""
+        chunk = f"[{p.name}]\n{body[:PEER_ITEM_MAX]}{cut}\n\n"
+        if used + len(chunk) > PEER_TOTAL_MAX:
+            dropped += 1
+            continue
+        parts.append(chunk)
+        used += len(chunk)
+    if not parts:
+        return ""
+    tail = f"(另有 {dropped} 份未纳入；请基于目录清单自行问询)\n" if dropped else ""
+    return ("\n\n==== 各评审上轮意见原文 ====\n\n" + "".join(parts) + tail
+            + "==== 意见原文结束（打分须依据上述原文，勿凭文件名臆测） ====\n")
+
+
 def run_review(args, cfg=None, progress=None):
     cfg = cfg if cfg is not None else council.load_config(args.config)
     council.guard_api_keys(args, cfg)
@@ -272,8 +303,10 @@ def run_review(args, cfg=None, progress=None):
 
         phase("R2 第二轮打分", 3)
         def p_r2(_sid):
+            peer = _inline_peer_round(discuss_dir, "第1轮评审")
             return (
-                f"方案:\n{_read(scheme_path)}\n\n讨论区文件:\n{_list_discuss(discuss_dir)}\n\n"
+                f"方案:\n{_read(scheme_path)}\n\n讨论区文件:\n{_list_discuss(discuss_dir)}\n"
+                f"{peer}\n"
                 "请：1) 总结共识与分歧 2) 为每位评审上轮意见打分(1-10) "
                 "3) 列出不超过3条独有创见。只输出 JSON：\n"
                 '{"scores": {"seat_id": 8}, "consensus": ["..."], '
@@ -316,8 +349,10 @@ def run_review(args, cfg=None, progress=None):
 
         phase("R4 定稿评审打分", 7)
         def p_r4(_sid):
+            peer = _inline_peer_round(discuss_dir, "第3轮评审")
             return (
                 f"最新方案:\n{_read(scheme_path)}\n\n讨论区:\n{_list_discuss(discuss_dir)}\n"
+                f"{peer}"
                 + extra_text("定稿判断须确认方案已覆盖以下新增需求")
                 + "请判断能否定稿实施，并为上轮意见打分。只输出 JSON：\n"
                 '{"scores": {"seat_id": 8}, "consensus": ["..."], '
