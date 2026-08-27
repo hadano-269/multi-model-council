@@ -13,8 +13,9 @@ out/
 mcp_debug.log
 mcp_debug.log.*
 
-# BaiduSyncdisk 同步冲突副本（非权威配置，禁止入库）
+# BaiduSyncdisk 同步冲突副本与上传残留
 config_冲突文件_*.yaml
+*.baiduyun.uploading.*
 
 # 私有研究背景材料，不入库
 bg_c3g.md

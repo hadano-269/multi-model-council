@@ -22,7 +22,8 @@ python gui.py                            # 或双击 start_gui.bat（自动补�
 - `council.py` — 核心编排器：Client（openai/anthropic 双协议，stdlib urllib）、RetryHub 重试、SeatMemory 会话记忆、RunControl 取消/跳过/插入、LiveProgress 终端覆盖式进度、checkpoint、`ask_json`/`ask_text`。其他模块都依赖它。
 - `review.py` — 方案评审模式（主笔 → 评审打分 → 改稿），复用 council 的席位调用。
 - `gui.py` — CustomTkinter GUI，`import council` 复用编排；设置页「保存」只写改动的字段、保留 config.yaml 其余内容（含 `${ENV:-default}` 模板与 persona）。
-- `mcp_server.py` — 供 OpenCode 调用的 MCP server，包装 council 后台跑。
+- `mcp_server.py` — 供 OpenCode 等客户端调用的 MCP server，包装 council 后台跑；双模式参数见 TOOLS 注册表。
+- `README.md` 分两部分：第一部分是给 LLM Agent 的自主安装手册（上传 GitHub 后供模型自装），第二部分才是人类向项目说明；`skills/council/SKILL.md` 教 LLM 触发/轮询 council 工具。改安装步骤或工具参数时两处要同步。
 - `tools.py` — 工作区只读工具（read_file/list_dir/grep），路径严格限制在 `tools.workspace` 内。
 - `config.yaml` — 席位/端点/人设；`${ENV:-default}` 语法支持环境变量覆盖内联 key。
 - `out/<YYYYmmdd_HHMMSS_标题>/` — 每次会话独立目录：`transcript.md`、`verdict.json`、`p1..p5` 阶段文件、`status.json`（CLI/GUI/MCP 共用的进度）、`checkpoint.json`。
