@@ -136,6 +136,7 @@ JSON 内 Windows 路径反斜杠需转义（`\\`）；改完配置重启客户�
 | `端点 xxx 的 api_key 为空` | 对应环境变量没设，或客户端注册后未重启 |
 | config 第 N 行疑似明文密钥 | 有人把真实 key 写回了 config.yaml——改为 `${ENV:-}` 引用；若已上云/入库视为泄漏，轮换之 |
 | MCP 连不上/握手卡死 | stdout 只允许 JSON-RPC；确认没有往 mcp_server.py 加 print 到 stdout |
+| 自写脚本调 MCP 时 `tools/call` 回包迟迟不到 | 先看 `mcp_debug.log`：若业务已完成（"完成，用时…"）而管道无响应，多为本机磁盘/同步盘对 `council.py` 冷加载的扫描拖慢——真客户端重试即可；自写验收器建议二进制管道 + 读线程 + 宽松超时 |
 | 中文乱码 | Windows 终端启用 VT/UTF-8；GUI 用 start_gui.bat 启动 |
 | 同步盘出现 `config_冲突文件_*.yaml` | 非权威配置，勿据此运行 |
 
