@@ -44,6 +44,6 @@ python gui.py                            # 或双击 start_gui.bat（自动补�
 
 - **mcp_server.py**：stdout 只能走 JSON-RPC；stderr 必须在 `import council` 之前重定向到 `mcp_debug.log`（OpenCode 握手前不读 stderr，否则死锁）。改动时不可破坏该顺序。
 - **BaiduSyncdisk 同步**：可能产生 `config_冲突文件_*.yaml` 之类的冲突副本——它们不是权威配置，勿编辑、勿当作依据；权威文件是 `config.yaml`。
-- **config.yaml 不存任何真实 key**：一律 `${ENV:-默认值}` 引用环境变量（本机已 `setx ARK_API_KEY` / `GO_API_KEY`）。真实调用前 `guard_api_keys`（council.py，接入 run/ping/review 三入口）会拦截缺失 key 与文件中误写的明文 key；往 config.yaml 回填真实 key 属于回归，禁止提交。
+- **config.yaml 不存任何真实 key**：一律 `${ENV:-默认值}` 引用环境变量（本机已 `setx ARK_API_KEY` / `GO_API_KEY`）。真实调用前 `guard_api_keys`（council.py，接入 run/ping/review 三入口）会拦截缺失 key 与文件中误写的明文 key；往 config.yaml 回填真实 key 属于回归，禁止提交。GUI 的 key 输入框走桥接（gui.py `resolve_key_var`）：新值 setx 进用户环境变量并注入当前进程，config 落模板，输入框永不回显已有密钥。
 - Windows 优先：`_enable_vt()`（ctypes 开 ANSI）、`start_gui.bat`、中文路径与编码（文件读写显式 `encoding="utf-8"`）。
 - `out/`、`__pycache__`、`.omo/`、`bg_c3g.md`（私有研究材料）、冲突副本、`mcp_debug.log` 均已被 `.gitignore` 排除，是生成物/外部/私有内容，不要手工整理或纳入提交。

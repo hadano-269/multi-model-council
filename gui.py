@@ -6,6 +6,7 @@ import json
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -116,14 +117,44 @@ def load_raw():
     return cfg
 
 
+# ---- API Key 桥接：GUI 输入的密钥只进系统环境变量，config.yaml 只落 ${VAR:-} 模板 ----
+
+KNOWN_ENDPOINT_VARS = {
+    "ark_plan": "ARK_API_KEY",
+    "opencode_go": "GO_API_KEY",
+    "ccswitch": "CC_SWITCH_API_KEY",
+}
+
+# 与 council._SECRET_LIKE 同规则：识别既有配置里误写的明文密钥以便自动迁移
+SECRET_LIKE_RE = re.compile(r"\b(?:sk|ark)-[A-Za-z0-9_-]{24,}")
+
+
+def resolve_key_var(endpoint_id, seat_hint=""):
+    """席位生效端点 -> 约定环境变量名；未知端点回退为按席位生成的专属变量。"""
+    v = KNOWN_ENDPOINT_VARS.get(endpoint_id or "")
+    if v:
+        return v
+    base = re.sub(r"[^A-Za-z0-9]+", "_", (seat_hint or "").upper()).strip("_")
+    return f"{base or 'CUSTOM'}_API_KEY"
+
+
+def key_env_hint(var):
+    """输入框占位文案：向用户说明当前凭据来源与覆盖方式。"""
+    loaded = os.environ.get(var)
+    if loaded:
+        return f"环境变量 {var} 已设（{loaded[:5]}***）；留空沿用，输入新值可覆盖"
+    return f"粘贴密钥（保存至用户环境变量 {var}，不写入 config.yaml）"
+
+
 class SeatEditor(ctk.CTkFrame):
     def __init__(self, master, title, eff=None, model="", protocol="openai",
                  editable_name=False, on_delete=None, src_sid=None, orig=None,
-                 persona=""):
+                 persona="", key_env_var=""):
         super().__init__(master, corner_radius=8, border_width=1,
                                  border_color=C_BORDER)
         self.src_sid = src_sid
         self.orig = orig or {"url": "", "key": ""}
+        self.key_env_var = key_env_var or ""
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=(8, 0))
         bold = ctk.CTkFont(size=14, weight="bold")
@@ -155,9 +186,14 @@ class SeatEditor(ctk.CTkFrame):
                      placeholder_text="留空则沿用该席位的原端点").grid(
             row=0, column=1, columnspan=3, sticky="ew", pady=3)
         lbl(1, "API Key")
-        self.key_var = ctk.StringVar(value=eff.get("key") or "")
-        self.key_entry = ctk.CTkEntry(grid, textvariable=self.key_var, show="•",
-                                      placeholder_text="sk-… / ark-…（留空沿用原端点）")
+        # 密钥永不回显到输入框：来自环境变量的只提示来源，文本框留空等待新值
+        self.key_env_var = key_env_var or ""
+        self.key_var = ctk.StringVar(value="")
+        self.key_entry = ctk.CTkEntry(
+            grid, textvariable=self.key_var, show="•",
+            placeholder_text=(key_env_hint(self.key_env_var)
+                              if self.key_env_var else
+                              "粘贴密钥（保存到用户环境变量，不写入 config.yaml）"))
         self.key_entry.grid(row=1, column=1, sticky="ew", pady=3)
         self.eye_btn = ctk.CTkButton(grid, text="显示", width=52, height=26,
                                      command=self.toggle_eye)
@@ -231,6 +267,17 @@ class SeatEditor(ctk.CTkFrame):
         hidden = self.key_entry.cget("show")
         self.key_entry.configure(show="" if hidden else "•")
         self.eye_btn.configure(text="隐藏" if hidden else "显示")
+
+    def refresh_key_hint(self):
+        """保存/轮换后刷新占位提示，反映最新的环境变量状态。"""
+        self.key_entry.configure(placeholder_text=(
+            key_env_hint(self.key_env_var) if self.key_env_var else
+            "粘贴密钥（保存到用户环境变量，不写入 config.yaml）"))
+
+    def clear_key_input(self):
+        """桥接成功后清空明文残留，密钥只留在环境变量里。"""
+        self.key_var.set("")
+        self.refresh_key_hint()
 
 
 class RunCard:
@@ -484,7 +531,8 @@ class App(ctk.CTk):
         self.mod_editor = SeatEditor(
             self.mod_slot, "moderator", eff=mod_eff,
             model=mod_seat.get("model", ""),
-            orig={"url": mod_eff["url"], "key": mod_eff["key"]},
+            orig={"url": mod_eff["url"], "key": ""},
+            key_env_var=resolve_key_var(mod_seat.get("endpoint"), "MODERATOR"),
             persona=mod_seat.get("persona") or "")
         self.mod_editor.pack(fill="x")
         for sid, seat in self.orig_seats.items():
@@ -500,7 +548,8 @@ class App(ctk.CTk):
                         editable_name=True, on_delete=self.remove_expert,
                         src_sid=sid,
                         orig={"url": self._eff_of(exp_cfg, seat)["url"],
-                              "key": self._eff_of(exp_cfg, seat)["key"]},
+                              "key": ""},
+                        key_env_var=resolve_key_var(seat.get("endpoint"), sid),
                         persona=seat.get("persona") or "")
         ed.pack(fill="x", pady=5)
         self.editors.append(ed)
@@ -520,7 +569,8 @@ class App(ctk.CTk):
             n += 1
         ed = SeatEditor(self.exp_slot, candidate, editable_name=True,
                         on_delete=self.remove_expert,
-                        orig={"url": "", "key": ""})
+                        orig={"url": "", "key": ""},
+                        key_env_var=resolve_key_var("", candidate))
         ed.pack(fill="x", pady=5)
         self.editors.append(ed)
         self._update_exp_count()
@@ -555,7 +605,14 @@ class App(ctk.CTk):
             return ep.get(field) or ""
 
         cfg = copy.deepcopy(self.raw_cfg)
+        bridges = {}
         med = self.mod_editor
+
+        def raw_ep(eid, field):
+            """读取未经展开的端点字段：${VAR:-} 模板在这里仍可见，
+            代表『凭据由环境变量提供』的合法占位。"""
+            return (((self.raw_cfg.get("endpoints") or {}).get(eid) or {})
+                    .get(field) or "")
         m_model = med.model_var.get().strip()
         m_url = med.url_var.get().strip()
         m_key = med.key_var.get().strip()
@@ -569,20 +626,27 @@ class App(ctk.CTk):
         if ptxt:
             mod["persona"] = ptxt
         url_changed = m_url != med.orig["url"]
-        key_changed = m_key != med.orig["key"]
         if url_changed:
             if m_url:
                 mod["base_url"] = m_url
             else:
                 problems.append("主持人: Base URL 不能为空（如需还原请填回原值）")
-        if key_changed:
-            if m_key:
-                mod["api_key"] = m_key
-            else:
-                problems.append("主持人: API Key 不能为空")
-        if not (mod.get("base_url") or src_ep("moderator", "base_url")):
+        # 密钥桥接：新输入的值 -> 用户环境变量（config 只落 ${VAR:-} 模板）；
+        # 原本误写的明文字面量在此保存时自动迁移；已有模板原样保留。
+        prev_mod_key = mod.get("api_key", "")
+        typed_mod = bool(m_key)
+        if not typed_mod and prev_mod_key and SECRET_LIKE_RE.search(prev_mod_key):
+            m_key = prev_mod_key.strip()
+            typed_mod = True
+        if typed_mod:
+            kb_var = resolve_key_var(mod.get("endpoint"), "MODERATOR")
+            bridges[kb_var] = m_key
+            mod["api_key"] = "${" + kb_var + ":-}"
+        if not (mod.get("base_url") or src_ep("moderator", "base_url")
+                or raw_ep(mod.get("endpoint"), "base_url")):
             problems.append("主持人: 缺少 Base URL")
-        if not (mod.get("api_key") or src_ep("moderator", "api_key")):
+        if not (mod.get("api_key") or src_ep("moderator", "api_key")
+                or raw_ep(mod.get("endpoint"), "api_key")):
             problems.append("主持人: 缺少 API Key")
 
         new_seats = {"moderator": mod}
@@ -592,7 +656,7 @@ class App(ctk.CTk):
             p5["model"] = mod.get("model", p5.get("model"))
             if url_changed and mod.get("base_url"):
                 p5["base_url"] = mod["base_url"]
-            if key_changed and mod.get("api_key"):
+            if bridges and mod.get("api_key"):
                 p5["api_key"] = mod["api_key"]
             new_seats["moderator_p5"] = p5
 
@@ -619,16 +683,27 @@ class App(ctk.CTk):
                     seat["base_url"] = url
                 else:
                     problems.append(f"{sid}: Base URL 被清空，请填写或还原原值")
-            if key != ed.orig["key"]:
-                if key:
-                    seat["api_key"] = key
-                else:
-                    problems.append(f"{sid}: API Key 被清空，请填写或还原原值")
+            # 密钥桥接：与主持人同理，支持既有明文的自动迁移
+            prev_seat_key = ((self.orig_seats.get(ed.src_sid) or {}).get("api_key", "")
+                             if ed.src_sid else "")
+            typed_exp = bool(key)
+            if not typed_exp and prev_seat_key and \
+                    SECRET_LIKE_RE.search(prev_seat_key):
+                key = prev_seat_key.strip()
+                typed_exp = True
+            src_epid = ((self.orig_seats.get(ed.src_sid) or {}).get("endpoint")) \
+                if ed.src_sid else ""
+            if typed_exp:
+                kb_var = resolve_key_var(src_epid, sid)
+                bridges[kb_var] = key
+                seat["api_key"] = "${" + kb_var + ":-}"
+            elif not prev_seat_key:
+                pass
             src = self.orig_seats.get(ed.src_sid) if ed.src_sid else None
             final_url = seat.get("base_url") or (src or {}).get("base_url") \
-                or src_ep(ed.src_sid, "base_url")
+                or src_ep(ed.src_sid, "base_url") or raw_ep(src_epid, "base_url")
             final_key = seat.get("api_key") or (src or {}).get("api_key") \
-                or src_ep(ed.src_sid, "api_key")
+                or src_ep(ed.src_sid, "api_key") or raw_ep(src_epid, "api_key")
             if not final_url:
                 problems.append(f"{sid}: 缺少 Base URL（席位与来源端点均未提供）")
             if not final_key:
@@ -674,14 +749,23 @@ class App(ctk.CTk):
         }
         if cfg["tools"]["enabled"] and not allow:
             problems.append("工具已启用但未勾选任何工具")
-        return problems, cfg
+        return problems, cfg, bridges
 
     def save_config(self):
-        problems, cfg = self.collect()
+        problems, cfg, bridges = self.collect()
         if problems:
             from tkinter import messagebox
             messagebox.showerror("配置有误", "\n".join(problems), parent=self)
             return
+        # 先落环境变量再写配置模板；任一失败即中止，不产生半套状态
+        for var, val in bridges.items():
+            r = subprocess.run(["setx", var, val], capture_output=True, text=True)
+            if r.returncode != 0:
+                from tkinter import messagebox
+                messagebox.showerror("环境变量写入失败",
+                                     f"{var}: {r.stderr.strip()}", parent=self)
+                return
+            os.environ[var] = val   # 页内 Ping 立即可用，无需重启 GUI
         council.write_text_retry(
             CONFIG_PATH,
             yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False,
@@ -691,17 +775,20 @@ class App(ctk.CTk):
         if self.mod_editor:
             self.mod_editor.orig = {
                 "url": self.mod_editor.url_var.get().strip(),
-                "key": self.mod_editor.key_var.get().strip(),
+                "key": "",
             }
+            self.mod_editor.clear_key_input()
         saved_ids = [s for s in cfg["seats"] if s not in RESERVED_SIDS]
         for ed, sid in zip(self.editors, saved_ids):
             ed.src_sid = sid
             ed.orig = {
                 "url": ed.url_var.get().strip(),
-                "key": ed.key_var.get().strip(),
+                "key": "",
             }
+            ed.clear_key_input()
+        note = f"；环境变量已更新 {', '.join(bridges)}" if bridges else ""
         self.save_status.configure(
-            text=f"已保存 {datetime.now():%H:%M:%S}", text_color=C_OK)
+            text=f"已保存 {datetime.now():%H:%M:%S}{note}", text_color=C_OK)
 
     def _build_run_tab(self):
         tab = self.tab_run
