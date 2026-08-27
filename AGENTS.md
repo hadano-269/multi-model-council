@@ -35,8 +35,9 @@ python gui.py                            # 或双击 start_gui.bat（自动补�
 - 重试 3 次指数退避，仅 `RETRYABLE` 状态码重试，4xx 参数类错误立即失败；`--max-calls`（默认 80）是单会话护栏。
 - 专家席失败 → 标记缺席继续；主持人失败 → 终止。
 - 专家失败时数据中可能有缺席席位；`verdict` 强制要求 `self_conflict_note`（同源偏差缓解）。
-- review 模式：注入需求（GUI「插入」/ `--inject`）在 phase 边界 drain 进 `extra_reqs`，此后持续拼进 A1/A2/R3/R4/F 的 prompt；`--scheme-existing` 跳过 A0 不覆盖既有方案；任何覆盖写方案前先备份到讨论区 `方案_v{N}.md`。- `transcript.md` 必须保持干净，只落原始发言，绝不写入进度/刷新字符。
+- review 模式：注入需求（GUI「插入」/ `--inject`）在 phase 边界 drain 进 `extra_reqs`，此后持续拼进 A1/A2/R3/R4/F 的 prompt；`--scheme-existing` 跳过 A0 不覆盖既有方案；任何覆盖写方案前先备份到讨论区 `方案_v{N}.md`。
 - 共享材料包：仅登记主持人席的工具输出原文（`Client.note_tool_output`，同 target 覆盖旧版），P2 经 `build_shared_block` 打包注入专家首条消息；单项/总量限额见 `SHARED_ITEM_MAX`/`SHARED_TOTAL_MAX`。不得把主持人的解读混入材料包。
+- `transcript.md` 必须保持干净，只落原始发言，绝不写入进度/刷新字符。
 
 ## 坑与注意事项
 

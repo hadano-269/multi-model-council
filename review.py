@@ -1,7 +1,9 @@
 """方案评审模式：主笔写方案 → 多轮评审/打分 → 改稿 → 定稿说明。"""
 import json
+import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import council
@@ -67,8 +69,18 @@ def run_review(args, cfg=None, progress=None):
 
     topic = (getattr(args, "topic", None) or "").strip() or "方案评审"
     mode = "DRY-RUN" if args.dry_run else "LIVE"
-    session_dir, session_id, ts, session_title = council.make_session_dir(
-        council.BASE / "out", topic)
+    # MCP/GUI 预建的会话目录优先，避免 status/verdict 与发起方查的目录错位
+    preset = getattr(args, "session_dir", None)
+    if preset:
+        session_dir = Path(preset)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_id = session_dir.name
+        matched = re.match(r"(\d{8}_\d{6})", session_id)
+        ts = matched.group(1) if matched else datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_title = council.topic_title(topic)
+    else:
+        session_dir, session_id, ts, session_title = council.make_session_dir(
+            council.BASE / "out", topic)
     toolkit, tools_meta = council.build_toolkit(cfg, args)
     client = council.Client(
         endpoints, dry_run=args.dry_run, toolkit=toolkit,
@@ -94,6 +106,19 @@ def run_review(args, cfg=None, progress=None):
     t0 = time.time()
     if progress is None:
         progress = council.LiveProgress(enabled=True, total_phases=8)
+    # 状态文件接线：辩论模式由 council.run 负责，review 需自绑，否则 MCP 发起的
+    # 会话状态将永远停留在工具预写的「启动中」快照
+    if getattr(progress, "status_path", None) is None:
+        progress.status_extra.update({
+            "session": session_id,
+            "topic": topic,
+            "mode": mode,
+            "state": "running",
+            "experts": reviewers,
+            "out_dir": str(session_dir),
+        })
+        progress.status_path = session_dir / "status.json"
+        progress.write_status()
     progress.max_calls = getattr(args, "max_calls", 80)
     progress.session_start = t0
     live = progress.enabled

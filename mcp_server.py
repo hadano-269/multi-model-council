@@ -230,27 +230,55 @@ def tool_seats():
     return "\n".join(lines)
 
 
-def tool_start(topic, file=None, experts=None, dry_run=False):
+def _resolve_local(rel):
+    """相对路径解析：先试 OpenCode 工作目录，再退到 council 安装目录。"""
+    p = Path(rel)
+    if p.is_absolute():
+        return p.resolve()
+    cand = (Path.cwd() / p).resolve()
+    return cand if cand.exists() else (BASE / rel).resolve()
+
+
+def tool_start(topic, file=None, experts=None, dry_run=False, mode="debate",
+               scheme=None, discuss=None, author=None, reviewers=None,
+               scheme_existing=False, inject=None):
     topic = (topic or "").strip()
     if not topic:
         return "缺少 topic"
+    is_review = str(mode or "debate").strip().lower() == "review"
+    if not is_review and str(mode or "").strip() not in ("debate", "", None):
+        return f"未知 mode: {mode}（可选 debate/review）"
     cfg = load_cfg()
     available = expert_ids(cfg)
+    seats_cfg = cfg.get("seats") or {}
     selected = []
-    if experts:
+    if experts and not is_review:
         selected = [s.strip() for s in str(experts).split(",") if s.strip()]
-        missing = [s for s in selected if s not in (cfg.get("seats") or {})]
+        missing = [s for s in selected if s not in seats_cfg]
         if missing:
             return f"席位不存在: {missing}，可选专家: {available}"
     bg = None
     if file:
-        bg = Path(file)
-        if not bg.is_absolute():
-            cand = (Path.cwd() / bg).resolve()
-            bg = cand if cand.exists() else (BASE / file).resolve()
-        if not bg.exists():
-            return f"背景文件不存在: {bg}"
-        bg = str(bg)
+        bgp = _resolve_local(file)
+        if not bgp.exists():
+            return f"背景文件不存在: {bgp}"
+        bg = str(bgp)
+    scheme_path = discuss_path = None
+    if is_review:
+        if not scheme or not str(scheme).strip():
+            return "方案评审模式需要提供 scheme（方案文件路径）"
+        scheme_path = _resolve_local(scheme)
+        if scheme_existing and not scheme_path.exists():
+            return f"scheme_existing=true 但方案文件不存在: {scheme_path}"
+        if discuss and str(discuss).strip():
+            discuss_path = _resolve_local(discuss)
+        if author and author not in seats_cfg:
+            return f"主笔席位不存在: {author}，可选: {[s for s in seats_cfg]}"
+        if reviewers:
+            rlist = [s.strip() for s in str(reviewers).split(",") if s.strip()]
+            miss_r = [s for s in rlist if s not in seats_cfg]
+            if miss_r:
+                return f"评审席位不存在: {miss_r}，可选专家: {available}"
     c = _council()
     session_dir, session_id, _ts, _title = c.make_session_dir(OUT_ROOT, topic)
     control = c.RunControl()
@@ -263,16 +291,18 @@ def tool_start(topic, file=None, experts=None, dry_run=False):
         "control": control,
         "topic": topic,
     }
+    phase_total = 8 if is_review else 5
     init_status = {
         "session": session_id,
         "topic": topic,
+        "pipeline": "review" if is_review else "debate",
         "mode": "DRY-RUN" if dry_run else "LIVE",
         "state": "running",
         "experts": selected or available,
         "out_dir": str(session_dir),
         "phase": "启动中",
         "phase_idx": 0,
-        "phase_total": 5,
+        "phase_total": phase_total,
         "session_elapsed": 0,
         "calls_done": 0,
         "max_calls": 80,
@@ -290,9 +320,17 @@ def tool_start(topic, file=None, experts=None, dry_run=False):
             quiet=True, no_live=False, workspace=None, no_tools=False,
             resume=None, session_dir=str(session_dir),
             retry_hub=None, control=control,
+            mode="review" if is_review else "debate",
+            scheme=str(scheme_path) if scheme_path else None,
+            discuss=str(discuss_path) if discuss_path else None,
+            author=author or None,
+            reviewers=reviewers or None,
+            scheme_existing=bool(scheme_existing),
+            inject=(str(inject).strip() if inject else "") or None,
         )
         cmod = _council()
-        progress = cmod.LiveProgress(enabled=True, total_phases=5, on_update=lambda _s: None)
+        progress = cmod.LiveProgress(enabled=True, total_phases=phase_total,
+                                     on_update=lambda _s: None)
         try:
             with contextlib.redirect_stdout(_logf):
                 cmod.run(args, cfg=cfg, progress=progress)
@@ -320,13 +358,15 @@ def tool_start(topic, file=None, experts=None, dry_run=False):
     with _JOBS_LOCK:
         _JOBS[session_id] = job
     who = ",".join(selected) if selected else "全部专家"
-    mode = "DRY-RUN" if dry_run else "LIVE"
+    run_mode = "DRY-RUN" if dry_run else "LIVE"
+    label = "方案评审" if is_review else "议会"
+    extra = f"\nscheme: {scheme_path}\n主笔: {author or '缺省首个专家'}" if is_review else ""
     return (
-        f"已启动 {mode} 议会，立即返回。请用 council_status 轮询，结束后用 council_verdict 取裁决。\n"
+        f"已启动 {run_mode} {label}，立即返回。请用 council_status 轮询，结束后用 council_verdict 取结果。\n"
         f"session: {session_id}\n"
-        f"experts: {who}\n"
-        f"out: {session_dir}\n"
-        f"不要自己扮演专家辩论。"
+        + (f"scheme: {scheme_path}\n" if is_review else f"experts: {who}\n")
+        + f"out: {session_dir}\n"
+        + ("不要自己扮演评审或主笔。" if is_review else "不要自己扮演专家辩论。")
     )
 
 
@@ -394,29 +434,63 @@ TOOLS = {
     },
     "council_start": {
         "description": (
-            "在后台启动一场多模型研究议会（拆题→表态→交叉评审→分歧追问→裁决）。"
-            "立即返回 session id，不会等待结束。"
-            "之后用 council_status 查看各席状态/进度/token，结束后用 council_verdict 取裁决。"
-            "不要自己扮演专家辩论。"
+            "在后台启动一场多模型会诊，立即返回 session id，不会等待结束。"
+            "mode=debate（默认）为议会辩论（拆题→表态→交叉评审→分歧追问→裁决）；"
+            "mode=review 为方案评审（主笔写方案→多轮评审打分→改稿→定稿），此时必须提供 scheme。"
+            "之后用 council_status 查看进度/token，结束后用 council_verdict 取结果。"
+            "不要自己扮演专家或评审。"
         ),
         "schema": {
             "type": "object",
             "properties": {
-                "topic": {"type": "string", "description": "议会议题（必填）"},
+                "topic": {"type": "string", "description": "议会议题/需求描述（必填）"},
                 "file": {"type": "string", "description": "可选背景材料路径（md/txt）"},
                 "experts": {
                     "type": "string",
-                    "description": "逗号分隔的专家席位 id；省略=全部专家",
+                    "description": "逗号分隔的专家席位 id；省略=全部专家（仅 debate 模式）",
                 },
                 "dry_run": {
                     "type": "boolean",
                     "description": "true 则 mock 全部模型调用，用于连通性验证",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["debate", "review"],
+                    "description": "debate=议会辩论（默认）；review=方案评审",
+                },
+                "scheme": {
+                    "type": "string",
+                    "description": "review 模式必填：方案文件路径；相对路径先按当前目录再按安装目录解析",
+                },
+                "discuss": {
+                    "type": "string",
+                    "description": "review 可选：讨论区目录，缺省为方案同目录下的 讨论区/",
+                },
+                "author": {
+                    "type": "string",
+                    "description": "review 可选：主笔席位 id，缺省取第一个专家席",
+                },
+                "reviewers": {
+                    "type": "string",
+                    "description": "review 可选：逗号分隔的评审席位 id，缺省为主笔外全部专家",
+                },
+                "scheme_existing": {
+                    "type": "boolean",
+                    "description": "review 可选：方案文件已存在时置 true，跳过主笔初稿直接评审、不覆盖原文",
+                },
+                "inject": {
+                    "type": "string",
+                    "description": "review 可选：会话开始即注入的补充需求文本，从下一阶段起持续生效并由主笔写进方案",
                 },
             },
             "required": ["topic"],
         },
         "fn": lambda a: tool_start(
             a.get("topic"), a.get("file"), a.get("experts"), bool(a.get("dry_run")),
+            mode=a.get("mode") or "debate", scheme=a.get("scheme"),
+            discuss=a.get("discuss"), author=a.get("author"),
+            reviewers=a.get("reviewers"),
+            scheme_existing=bool(a.get("scheme_existing")), inject=a.get("inject"),
         ),
     },
     "council_status": {

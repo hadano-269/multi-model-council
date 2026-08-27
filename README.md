@@ -94,8 +94,9 @@ out/<YYYYmmdd_HHMMSS_议题标题>/
 - 每次调用重试 3 次（指数退避），仅 4xx 参数类错误立即失败。
 - `--max-calls N` 为单会话调用数护栏（默认 80）。
 - 同源偏差缓解：moderator 与 expert_grok 同为 grok-4.6，verdict 强制输出 `self_conflict_note`。
-- 工作区工具（默认关闭）：全局白名单 `read_file` / `list_dir` / `grep`，路径限制在 `tools.workspace` 内；openai / anthropic 席位可在给出 JSON 前先查文件。`responses` 协议不接工具。`--no-tools` 强制关。- GUI：运行中途可取消整场或跳过某席；失败可手动重试；设置页可编辑人设、单席/全部 Ping；顶栏与裁决记录 token 输入/输出计数（不换算金额）。`--resume` 或 GUI「续跑」从 `checkpoint.json` 下一阶段接着打。
+- 工作区工具（默认关闭）：全局白名单 `read_file` / `list_dir` / `grep`，路径限制在 `tools.workspace` 内；openai / anthropic 席位可在给出 JSON 前先查文件。`responses` 协议不接工具。`--no-tools` 强制关。
 - 共享材料包：主持人 P1 读取的工具原文按目标去重（同文件留最新版）、单项截断 6000 字符、总量封顶 24000 字符后，随 P2 注入每位专家的首条消息；只转未经加工的原文，不做主持人解读，避免锚定专家独立表态。后续阶段经各席历史自动可见；此时工具提示变为「如需核实再调用」，专家可按需补充查阅。
+- GUI：运行中途可取消整场或跳过某席；失败可手动重试；设置页可编辑人设、单席/全部 Ping；顶栏与裁决记录 token 输入/输出计数（不换算金额）。`--resume` 或 GUI「续跑」从 `checkpoint.json` 下一阶段接着打。
 
 ## 依赖
 
@@ -121,17 +122,17 @@ OpenCode 可直接发起议会（后台跑，不阻塞对话）。已可写入 `
 }
 ```
 
-对 OpenCode 说「用议会讨论 xxx」即可。工具：
+对 OpenCode 说「用议会讨论 xxx」或「用评审模式评审 xxx 方案」即可。工具：
 
 | 工具 | 作用 |
 |------|------|
 | `council_seats` | 列出席位 |
-| `council_start` | 后台开场，立刻返回 session |
+| `council_start` | 后台开场（debate 议会 / review 方案评审），立刻返回 session；review 需给 scheme，可选 discuss/author/reviewers/scheme_existing/inject |
 | `council_status` | 阶段 / 每席状态 / token |
 | `council_verdict` | 读裁决；未结束则返回当前进度 |
 | `council_cancel` | 取消本进程内正在跑的一场 |
 
-进度同时写在 `out/<session>/status.json`，CLI / GUI / MCP 共用。改完配置后重启 OpenCode。
+进度同时写在 `out/<session>/status.json`，CLI / GUI / MCP 共用。改完配置后重启 OpenCode；MCP 发起的 LIVE 会话同样受 API Key 环境变量预检约束（setx 后需重启 OpenCode）。
 
 ## GUI
 
