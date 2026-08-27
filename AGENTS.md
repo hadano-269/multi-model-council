@@ -11,6 +11,7 @@ python council.py "议题" --dry-run       # 零成本 mock 全流程（改完�
 python council.py "议题" --file bg_c3g.md           # 正式会诊
 python council.py --resume out/<session>            # 从 checkpoint.json 续跑
 python council.py --mode review --scheme 方案.md --author expert_glm --reviewers expert_qwen "需求"  # 方案评审模式
+python council.py --mode review --scheme 方案.md --scheme-existing --discuss 讨论区 --author expert_glm "需求"  # 从既有方案起步（跳过 A0，不覆盖原文）
 python gui.py                            # 或双击 start_gui.bat（自动补装依赖）
 ```
 
@@ -34,7 +35,7 @@ python gui.py                            # 或双击 start_gui.bat（自动补�
 - 重试 3 次指数退避，仅 `RETRYABLE` 状态码重试，4xx 参数类错误立即失败；`--max-calls`（默认 80）是单会话护栏。
 - 专家席失败 → 标记缺席继续；主持人失败 → 终止。
 - 专家失败时数据中可能有缺席席位；`verdict` 强制要求 `self_conflict_note`（同源偏差缓解）。
-- `transcript.md` 必须保持干净，只落原始发言，绝不写入进度/刷新字符。
+- review 模式：注入需求（GUI「插入」/ `--inject`）在 phase 边界 drain 进 `extra_reqs`，此后持续拼进 A1/A2/R3/R4/F 的 prompt；`--scheme-existing` 跳过 A0 不覆盖既有方案；任何覆盖写方案前先备份到讨论区 `方案_v{N}.md`。- `transcript.md` 必须保持干净，只落原始发言，绝不写入进度/刷新字符。
 
 ## 坑与注意事项
 

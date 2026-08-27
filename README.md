@@ -58,6 +58,12 @@ python council.py --resume out/20260826_172252_某标题
 
 # 方案评审（主笔写方案 → 多轮评审/打分 → 改稿）
 python council.py --mode review --scheme 方案.md --discuss 讨论区 --author expert_glm --reviewers expert_qwen,expert_mimo "需求描述"
+
+# 从既有方案起步：跳过主笔初稿，直接评审，不覆盖原文；改稿前自动备份旧版到讨论区（方案_v1.md、…）
+python council.py --mode review --scheme 方案.md --scheme-existing --discuss 讨论区 --author expert_glm "需求描述"
+
+# 会话开始即注入补充需求（与运行中 GUI「插入」等效；注入后从下一阶段起持续可见，由主笔写进方案）
+python council.py --mode review --scheme 方案.md --inject "客户新增：支持多主办方" "需求描述"
 ```
 
 ### 实时进度
@@ -88,8 +94,7 @@ out/<YYYYmmdd_HHMMSS_议题标题>/
 - 每次调用重试 3 次（指数退避），仅 4xx 参数类错误立即失败。
 - `--max-calls N` 为单会话调用数护栏（默认 80）。
 - 同源偏差缓解：moderator 与 expert_grok 同为 grok-4.6，verdict 强制输出 `self_conflict_note`。
-- 工作区工具（默认关闭）：全局白名单 `read_file` / `list_dir` / `grep`，路径限制在 `tools.workspace` 内；openai / anthropic 席位可在给出 JSON 前先查文件。`responses` 协议不接工具。`--no-tools` 强制关。
-- GUI：运行中途可取消整场或跳过某席；失败可手动重试；设置页可编辑人设、单席/全部 Ping；顶栏与裁决记录 token 输入/输出计数（不换算金额）。`--resume` 或 GUI「续跑」从 `checkpoint.json` 下一阶段接着打。
+- 工作区工具（默认关闭）：全局白名单 `read_file` / `list_dir` / `grep`，路径限制在 `tools.workspace` 内；openai / anthropic 席位可在给出 JSON 前先查文件。`responses` 协议不接工具。`--no-tools` 强制关。- GUI：运行中途可取消整场或跳过某席；失败可手动重试；设置页可编辑人设、单席/全部 Ping；顶栏与裁决记录 token 输入/输出计数（不换算金额）。`--resume` 或 GUI「续跑」从 `checkpoint.json` 下一阶段接着打。
 
 ## 依赖
 
@@ -137,5 +142,5 @@ python gui.py
 ```
 
 - **设置页**：顶部「工作区工具」全局开关 + 工作区目录 + 三个只读工具勾选；主持人 + 专家席均可独立配置 Base URL / API Key / 模型名 / 协议（openai / anthropic）；专家可增删改名；「保存」写回 `config.yaml`（未改动的字段保留原样，含 `${ENV:-default}` 模板与各席 persona）。
-- **运行页**：可选「辩论议会」或「方案评审」；勾选「测试」为零费用 mock。方案评审需填方案路径、讨论区、主笔；运行中可「插入」额外需求到下一阶段。
+- **运行页**：可选「辩论议会」或「方案评审」；勾选「测试」为零费用 mock。方案评审需填方案路径、讨论区、主笔，可勾「既有方案」跳过主笔初稿（不覆盖原文）；运行中可「插入」额外需求（也可会前用 `--inject`），注入文字从下一阶段起持续生效，由主笔写进方案。
 - 席位若自带 base_url/api_key 则优先生效，否则回退到 `endpoints` 共享配置。CLI 用法不变。

@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 
+# ZCode 本地会话产物
+.zcode/
+
 # 运行产物与外部目录
 out/
 .omo/

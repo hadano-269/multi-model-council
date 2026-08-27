@@ -1,5 +1,6 @@
 """方案评审模式：主笔写方案 → 多轮评审/打分 → 改稿 → 定稿说明。"""
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -77,6 +78,13 @@ def run_review(args, cfg=None, progress=None):
     control = getattr(args, "control", None) or council.RunControl()
     client.control = control
 
+    # CLI 预注入：--inject 的文本与 GUI 运行中「插入」走同一条队列
+    pre_inject = str(getattr(args, "inject", None) or "").strip()
+    if pre_inject:
+        control.inject(pre_inject)
+    # 中途补充需求：从注入后的下一阶段起持续可见，最终要由主笔写进方案
+    extra_reqs = []
+
     tr = council.Transcript(session_dir / "transcript.md", [
         f"时间: {ts}", f"模式: {mode} / 方案评审", f"议题: {topic}",
         f"主笔: {author_id}", f"评审: {', '.join(reviewers)}",
@@ -122,10 +130,33 @@ def run_review(args, cfg=None, progress=None):
 
     def phase(title, idx):
         control.check()
+        got = control.drain_extra()
+        if got:
+            extra_reqs.append(got)
+            print(f"[council] 本阶段起生效注入需求 {len(got)} 字（主笔将写进方案）")
         tr.section(title)
         if live:
             progress.set_phase(title, idx, total=8)
         print(f"[{idx}/8] {title}")
+
+    def extra_text(lead):
+        if not extra_reqs:
+            return ""
+        return f"\n\n{lead}：\n" + "\n\n".join(extra_reqs) + "\n"
+
+    scheme_ver = 0
+
+    def backup_scheme():
+        # 覆盖写方案前把当前版本存进讨论区，保证改稿全程可审计、可回滚
+        nonlocal scheme_ver
+        if not scheme_path.exists():
+            return
+        try:
+            text = scheme_path.read_text(encoding="utf-8")
+        except OSError:
+            return
+        scheme_ver += 1
+        _write(discuss_dir / f"方案_v{scheme_ver}.md", text)
 
     def run_author(phase_id, prompt, mock):
         ctx = {"mock_text": mock, "experts": reviewers}
@@ -186,13 +217,21 @@ def run_review(args, cfg=None, progress=None):
         return out
 
     try:
-        phase("A0 主笔写方案", 1)
-        draft = run_author(
-            "author_draft",
-            f"需求/议题:\n{topic}\n\n请调研工作区后写出完整改进方案（Markdown）。"
-            f"只输出方案正文，不要JSON。",
-            f"# [mock] {topic} 方案草案\n\n- 目标\n- 步骤\n- 风险\n")
-        _write(scheme_path, draft)
+        scheme_existing = bool(getattr(args, "scheme_existing", False))
+        if scheme_existing:
+            if not scheme_path.exists():
+                sys.exit(f"方案文件不存在，无法按既有方案起步: {scheme_path}")
+            phase("A0 采用既有方案", 1)
+            print("[council] 跳过主笔初稿，直接评审既有方案（不覆盖原文）")
+        else:
+            phase("A0 主笔写方案", 1)
+            draft = run_author(
+                "author_draft",
+                f"需求/议题:\n{topic}\n\n请调研工作区后写出完整改进方案（Markdown）。"
+                f"只输出方案正文，不要JSON。",
+                f"# [mock] {topic} 方案草案\n\n- 目标\n- 步骤\n- 风险\n")
+            backup_scheme()
+            _write(scheme_path, draft)
         council.write_checkpoint(session_dir, {"next_phase": 2, "pipeline": "review",
                                                "topic": topic, "scheme": str(scheme_path)})
 
@@ -223,15 +262,18 @@ def run_review(args, cfg=None, progress=None):
         rev1 = run_author(
             "author_rev1",
             f"当前方案:\n{_read(scheme_path)}\n\n讨论区:\n{_list_discuss(discuss_dir)}\n"
-            f"请根据评审意见改进方案，输出完整方案 Markdown（覆盖稿）。",
+            + extra_text("新增需求（中途补充，优先级高于原需求），请据此完善并写进方案")
+            + "请根据评审意见改进方案，输出完整方案 Markdown（覆盖稿）。",
             f"# [mock] {topic} 改进稿 v2\n\n已吸收第1轮评审。\n")
+        backup_scheme()
         _write(scheme_path, rev1)
 
         phase("R3 第三轮评审", 5)
         def p_r3(_sid):
             return (f"改进后的方案:\n{_read(scheme_path)}\n\n"
-                    f"讨论区:\n{_list_discuss(discuss_dir)}\n\n"
-                    "再次评审是否可实施。输出 Markdown 意见。")
+                    f"讨论区:\n{_list_discuss(discuss_dir)}\n"
+                    + extra_text("评审时请同时检查方案是否覆盖以下新增需求")
+                    + "\n再次评审是否可实施。输出 Markdown 意见。")
         run_reviewers("review3", p_r3, "第3轮评审")
         if control.cancelled():
             return pack(True, "用户取消")
@@ -239,15 +281,19 @@ def run_review(args, cfg=None, progress=None):
         phase("A2 主笔再改", 6)
         rev2 = run_author(
             "author_rev2",
-            f"当前方案:\n{_read(scheme_path)}\n\n第3轮意见在讨论区。请再改一版完整方案 Markdown。",
+            f"当前方案:\n{_read(scheme_path)}\n\n第3轮意见在讨论区。\n"
+            + extra_text("新增需求（中途补充，优先级高于原需求），请据此完善并写进方案")
+            + "请再改一版完整方案 Markdown。",
             f"# [mock] {topic} 改进稿 v3\n\n已吸收第3轮评审。\n")
+        backup_scheme()
         _write(scheme_path, rev2)
 
         phase("R4 定稿评审打分", 7)
         def p_r4(_sid):
             return (
                 f"最新方案:\n{_read(scheme_path)}\n\n讨论区:\n{_list_discuss(discuss_dir)}\n"
-                "请判断能否定稿实施，并为上轮意见打分。只输出 JSON：\n"
+                + extra_text("定稿判断须确认方案已覆盖以下新增需求")
+                + "请判断能否定稿实施，并为上轮意见打分。只输出 JSON：\n"
                 '{"scores": {"seat_id": 8}, "consensus": ["..."], '
                 '"disputes": ["..."], "insights": ["..."], "can_ship": true}'
             )
@@ -259,7 +305,9 @@ def run_review(args, cfg=None, progress=None):
         phase("F 定稿说明", 8)
         fin = run_author(
             "author_final",
-            f"定稿方案:\n{_read(scheme_path)}\n\n请写一段实施说明（Markdown），"
+            f"定稿方案:\n{_read(scheme_path)}\n\n"
+            + extra_text("请在实施说明中列出以下新增需求各自的覆盖情况")
+            + "请写一段实施说明（Markdown），"
             "包括范围、风险、不做什么。不要改方案结构除非必要。",
             f"# [mock] {topic} 定稿说明\n\n可以实施。\n")
         _write(discuss_dir / "定稿说明.md", fin)

@@ -747,9 +747,13 @@ class App(ctk.CTk):
             row=0, column=1, sticky="ew", padx=(0, 8), pady=(3, 0))
         ctk.CTkButton(rf, text="选择", width=64, height=28,
                       command=self.pick_scheme).grid(row=0, column=2, pady=(3, 0))
-        ctk.CTkLabel(rf, text="主笔输出的方案文件，A0 初稿、A1/A2 改稿都写这里",
-                     text_color=C_DIM, font=hint, anchor="w").grid(
-            row=1, column=1, columnspan=2, sticky="w", pady=(0, 4))
+        row1 = ctk.CTkFrame(rf, fg_color="transparent")
+        row1.grid(row=1, column=1, columnspan=2, sticky="w", pady=(0, 4))
+        self.scheme_existing_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(row1, text="既有方案（跳过主笔初稿，不覆盖原文）",
+                        variable=self.scheme_existing_var, height=24).pack(side="left")
+        ctk.CTkLabel(row1, text="改稿前自动备份旧版到讨论区",
+                     text_color=C_DIM, font=hint).pack(side="left", padx=(10, 0))
         ctk.CTkLabel(rf, text="讨论区", width=48, anchor="e").grid(row=2, column=0, padx=(0, 8), pady=(3, 0))
         self.discuss_var = ctk.StringVar(value="讨论区")
         ctk.CTkEntry(rf, textvariable=self.discuss_var, height=28,
@@ -881,6 +885,7 @@ class App(ctk.CTk):
             resume=self._resume_dir,
             mode="review" if is_review else "debate",
             scheme=self.scheme_var.get().strip() or None,
+            scheme_existing=bool(self.scheme_existing_var.get()),
             discuss=self.discuss_var.get().strip() or None,
             author=self.author_var.get().strip() or None,
             reviewers=None)

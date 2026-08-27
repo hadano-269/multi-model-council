@@ -1759,6 +1759,10 @@ def main():
     ap.add_argument("--discuss", help="方案评审：讨论区目录")
     ap.add_argument("--author", help="方案评审：主笔席位 id")
     ap.add_argument("--reviewers", help="方案评审：逗号分隔的评审席位")
+    ap.add_argument("--scheme-existing", action="store_true",
+                    help="方案评审：方案文件已存在，跳过主笔初稿直接进评审，不覆盖原方案")
+    ap.add_argument("--inject", help="方案评审：会话开始即注入的补充需求文本"
+                    "（等价于运行中插入）")
     ap.add_argument("--dry-run", action="store_true",
                     help="mock 所有模型调用，零成本验证流程")
     ap.add_argument("--quiet", action="store_true", help="静默模式，不显示实时进度")
