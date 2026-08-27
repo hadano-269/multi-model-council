@@ -5,7 +5,7 @@ defaults:
   timeout: 300
 tools:
   enabled: false
-  workspace: C:/Users/22981/Desktop/Unicdata/Project/分离算法探索
+  workspace: ./
   allow:
   - read_file
   - list_dir
