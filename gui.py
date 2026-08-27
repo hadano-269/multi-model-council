@@ -384,10 +384,10 @@ class App(ctk.CTk):
         try:
             cfg = load_raw()
             cfg.setdefault("ui", {})["appearance"] = mode
-            CONFIG_PATH.write_text(
+            council.write_text_retry(
+                CONFIG_PATH,
                 yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False,
-                               default_flow_style=False, width=120),
-                encoding="utf-8")
+                               default_flow_style=False, width=120))
             if isinstance(self.raw_cfg, dict):
                 self.raw_cfg.setdefault("ui", {})["appearance"] = mode
         except Exception:
@@ -682,10 +682,10 @@ class App(ctk.CTk):
             from tkinter import messagebox
             messagebox.showerror("配置有误", "\n".join(problems), parent=self)
             return
-        CONFIG_PATH.write_text(
+        council.write_text_retry(
+            CONFIG_PATH,
             yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False,
-                           default_flow_style=False, width=120),
-            encoding="utf-8")
+                           default_flow_style=False, width=120))
         self.raw_cfg = cfg
         self.orig_seats = copy.deepcopy(cfg["seats"])
         if self.mod_editor:

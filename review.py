@@ -87,6 +87,7 @@ def run_review(args, cfg=None, progress=None):
         max_tool_rounds=(cfg.get("tools") or {}).get("max_rounds", 8),
         memory=council.SeatMemory())
     client.retry_hub = getattr(args, "retry_hub", None)
+    client.max_calls = getattr(args, "max_calls", None) or None
     control = getattr(args, "control", None) or council.RunControl()
     client.control = control
 

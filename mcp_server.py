@@ -309,8 +309,8 @@ def tool_start(topic, file=None, experts=None, dry_run=False, mode="debate",
         "tokens": {},
         "seats": {},
     }
-    (session_dir / "status.json").write_text(
-        json.dumps(init_status, ensure_ascii=False, indent=2), encoding="utf-8")
+    c.write_text_retry(session_dir / "status.json",
+                       json.dumps(init_status, ensure_ascii=False, indent=2))
 
     def worker():
         args = argparse.Namespace(

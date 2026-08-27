@@ -175,8 +175,8 @@ class RetryHub:
             return True
 
 
-class BudgetExceeded(Exception):
-    pass
+# 预算超限不再单独设异常：以携带原因的 Cancelled 抛出，
+# 复用三入口已有的取消级联（pack(incomplete)/GUI/MCP worker）全套处理路径。
 
 
 def expand_env(val):
@@ -288,15 +288,40 @@ def make_session_dir(out_root, topic, when=None):
 
 
 def write_text_retry(path, text, mode="w", retries=8):
+    """落盘统一入口。
+
+    mode="w" 走同目录临时文件 + os.replace 原子替换：同步盘（BaiduSyncdisk 等）
+    只会看到完整的新旧版本，从源头消除「config_冲突文件_*」类半写副本；
+    追加模式保持原语义直接 append（transcript 的高频小段追加场景）。
+    """
     path = Path(path)
+    if mode != "w":
+        last = None
+        for i in range(retries):
+            try:
+                with path.open(mode, encoding="utf-8") as f:
+                    f.write(text)
+                return
+            except PermissionError as e:
+                last = e
+                time.sleep(0.12 * (i + 1))
+        if last:
+            raise last
+        return
+    tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
     last = None
     for i in range(retries):
         try:
-            with path.open(mode, encoding="utf-8") as f:
+            with tmp.open("w", encoding="utf-8") as f:
                 f.write(text)
+            os.replace(tmp, path)   # 同卷替换是原子的
             return
         except PermissionError as e:
             last = e
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
             time.sleep(0.12 * (i + 1))
     if last:
         raise last
@@ -371,6 +396,17 @@ class Client:
         self._tls = threading.local()
         self._usage_lock = threading.Lock()
         self.usage = {}
+        # 调用数护栏：None=不限制；由 run/run_review 从 --max-calls 注入
+        self.max_calls = None
+        self._total_calls = 0
+
+    def enforce_budget(self):
+        """会话级调用护栏：超限以携带原因的取消语义中止，零网络花费。"""
+        limit = self.max_calls
+        if not limit or self._total_calls < int(limit):
+            return
+        raise Cancelled(f"已达到 --max-calls={int(limit)} 调用上限，"
+                        "会话中止以保护花费（可用 --experts 缩席或提高上限重跑）")
 
     def note_tool_output(self, name, args, result):
         """把工具输出原文登记进共享材料包；仅收主持人席，同一 target 覆盖旧版。"""
@@ -407,6 +443,8 @@ class Client:
     def _record_usage(self, data):
         sid = getattr(self._tls, "seat_id", None)
         inn, out = parse_usage(data)
+        with self._usage_lock:
+            self._total_calls += 1   # 无条件计数：工具轮内的每次 HTTP 也占预算
         if not sid:
             return inn, out
         key = "moderator" if sid == "moderator_p5" else sid
@@ -491,6 +529,7 @@ class Client:
         self._tls.on_event = on_event
         if self.control:
             self.control.check(seat_id)
+        self.enforce_budget()
         hist = self.memory.snapshot(seat_id) if self.memory else []
         use_tools = bool(self.toolkit and self.toolkit.allow
                          and proto in ("openai", "anthropic"))
@@ -1403,6 +1442,7 @@ def run(args, cfg=None, progress=None):
                     max_tool_rounds=(cfg.get("tools") or {}).get("max_rounds", 8),
                     memory=SeatMemory())
     client.retry_hub = getattr(args, "retry_hub", None)
+    client.max_calls = getattr(args, "max_calls", None) or None
     control = getattr(args, "control", None) or RunControl()
     client.control = control
     if resume_path and ck.get("tokens", {}).get("by_seat"):
