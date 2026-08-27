@@ -1,0 +1,17 @@
+# Python 生成物
+__pycache__/
+*.pyc
+
+# 运行产物与外部目录
+out/
+.omo/
+
+# 本机日志
+mcp_debug.log
+mcp_debug.log.*
+
+# BaiduSyncdisk 同步冲突副本（非权威配置，禁止入库）
+config_冲突文件_*.yaml
+
+# 私有研究背景材料，不入库
+bg_c3g.md

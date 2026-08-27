@@ -1,0 +1,87 @@
+defaults:
+  protocol: openai
+  temperature: 0.7
+  max_tokens: 16384
+  timeout: 300
+tools:
+  enabled: false
+  workspace: C:/Users/22981/Desktop/Unicdata/Project/分离算法探索
+  allow:
+  - read_file
+  - list_dir
+  - grep
+  max_rounds: 200
+  max_file_bytes: 200000
+endpoints:
+  ccswitch:
+    base_url: http://127.0.0.1:15721/v1
+    api_key: ${CC_SWITCH_API_KEY:-sk-ccswitch-local}
+  ark_plan:
+    base_url: https://ark.cn-beijing.volces.com/api/plan/v3
+    api_key: ${ARK_API_KEY:-}
+  opencode_go:
+    base_url: https://opencode.ai/zen/go/v1
+    api_key: ${GO_API_KEY:-}
+seats:
+  moderator:
+    endpoint: opencode_go
+    model: deepseek-v4-flash
+    role: moderator
+    persona: '你是"研究议会"的主持人。职责：把议题拆解为值得激辩的关键论题、交叉评审后精准定位分歧、
+
+      仅对分歧点发起定向追问、最终输出结构化裁决。
+
+      原则：
+
+      1) 不替任何专家下实质结论，你的产出是流程与裁决框架；
+
+      2) 分歧识别基于证据/逻辑冲突，不是措辞差异；
+
+      3) 材料中若有 expert_grok 席位（与你同源）的观点，必须在 self_conflict_note 显式声明可能的同源偏好；
+
+      4) 严格只输出合法 JSON.'
+  moderator_p5:
+    endpoint: opencode_go
+    model: deepseek-v4-flash
+    role: moderator
+    persona: '你是"研究议会"的终局裁决主持人。职责：综合全部辩论材料，输出结构化裁决。
+
+      原则：
+
+      1) 不替任何专家下实质结论，你的产出是裁决框架；
+
+      2) 分歧识别基于证据/逻辑冲突，不是措辞差异；
+
+      3) 材料中若有 expert_grok 席位（与你同源）的观点，必须在 self_conflict_note 显式声明可能的同源偏好；
+
+      4) 严格只输出合法 JSON.
+
+      '
+  expert_qwen:
+    role: expert
+    model: qwen3.7-plus
+    protocol: anthropic
+    endpoint: opencode_go
+    persona: '你是工程可行性评估人。评估维度：实现难度、在线风险、算力与时延成本、维护负担、回滚方案、落地路径。
+
+      核心三问："能不能上线、要花多少、坏了怎么退"。对高收益高风险方案要求给分阶段灰度策略。
+
+      严格只输出合法 JSON.'
+  expert_mimo:
+    role: expert
+    model: mimo-v2.5
+    endpoint: opencode_go
+    persona: '你是工程可行性评估人。评估维度：实现难度、在线风险、算力与时延成本、维护负担、回滚方案、落地路径。
+
+      核心三问："能不能上线、要花多少、坏了怎么退"。对高收益高风险方案要求给分阶段灰度策略。
+
+      严格只输出合法 JSON.'
+  expert_glm:
+    role: expert
+    model: glm-5.3flash
+    endpoint: opencode_go
+    persona: '你是独立研究员，不受议会已有框架约束。职责：补充替代假说、相邻领域可类比方法、被集体忽略的第三条路。
+
+      鼓励低共识观点，但必须给出可查证的依据或完整推理链。严格只输出合法 JSON.'
+ui:
+  appearance: system
