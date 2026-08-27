@@ -331,6 +331,31 @@ def parse_usage(data):
         return 0, 0
 
 
+# 共享材料包限额：单项截断 / 总量封顶，防止主持人大量工具调用撑爆专家上下文
+SHARED_ITEM_MAX = 6000
+SHARED_TOTAL_MAX = 24000
+
+
+def build_shared_block(pack):
+    """共享材料包 → 注入文本；只转工具原文、不做加工，超限截断并标注。"""
+    pack = pack or {}
+    parts, used, dropped = [], 0, 0
+    for item in pack.values():
+        body = (item.get("body") or "").strip()
+        cut = "…(后文截断)" if len(body) > SHARED_ITEM_MAX else ""
+        chunk = f"[{item.get('label', '')}]\n{body[:SHARED_ITEM_MAX]}{cut}\n"
+        if used + len(chunk) > SHARED_TOTAL_MAX:
+            dropped += 1
+            continue
+        parts.append(chunk)
+        used += len(chunk)
+    if not parts:
+        return ""
+    tail = f"\n(另有 {dropped} 项未纳入；如需可自行调用工具查阅)\n" if dropped else ""
+    return ("\n\n==== 主持调研共享材料（未经加工的工具原文，可直接引用） ====\n\n"
+            + "\n".join(parts) + tail + "==== 共享材料结束 ====\n")
+
+
 class Client:
     def __init__(self, endpoints, dry_run=False, toolkit=None, max_tool_rounds=8,
                  memory=None):
@@ -340,9 +365,34 @@ class Client:
         self.max_tool_rounds = max(1, int(max_tool_rounds or 8))
         self.memory = memory
         self.control = None
+        # 主持人席工具读取的原文登记（target 去重、同目标留最新版本），供 P2 打包分发
+        self._shared = {}
+        self._shared_lock = threading.Lock()
         self._tls = threading.local()
         self._usage_lock = threading.Lock()
         self.usage = {}
+
+    def note_tool_output(self, name, args, result):
+        """把工具输出原文登记进共享材料包；仅收主持人席，同一 target 覆盖旧版。"""
+        sid = getattr(self._tls, "seat_id", None)
+        if sid != "moderator" or not str(result or "").strip():
+            return
+        args = args if isinstance(args, dict) else {}
+        if name == "read_file":
+            key, label = f"文件:{args.get('path', '')}", f"read_file {args.get('path', '')}"
+        elif name == "list_dir":
+            key, label = f"目录:{args.get('path', '.')}", f"list_dir {args.get('path', '.')}"
+        elif name == "grep":
+            key = f"搜索:{args.get('pattern', '')}@{args.get('path', '.')}"
+            label = f"grep \"{args.get('pattern', '')}\" ({args.get('path', '.')})"
+        else:
+            key = label = f"{name} {json.dumps(args, ensure_ascii=False)}"
+        with self._shared_lock:
+            self._shared[key] = {"label": label, "body": str(result)}
+
+    def shared_pack(self):
+        with self._shared_lock:
+            return dict(self._shared)
 
     def usage_snapshot(self):
         with self._usage_lock:
@@ -520,6 +570,7 @@ class Client:
                 for c in calls:
                     args = c.get("input") if isinstance(c.get("input"), dict) else {}
                     result = self.toolkit.call(c.get("name"), args)
+                    self.note_tool_output(c.get("name"), args, result)
                     self._tls.trace.append({
                         "name": c.get("name"), "args": args, "result": result[:800],
                     })
@@ -538,6 +589,7 @@ class Client:
                     args = parse_tool_args(fn.get("arguments"))
                     name = fn.get("name") or c.get("name")
                     result = self.toolkit.call(name, args)
+                    self.note_tool_output(name, args, result)
                     self._tls.trace.append({
                         "name": name, "args": args, "result": result[:800],
                     })
@@ -984,8 +1036,14 @@ class LiveProgress:
 def _ask_json_once(client, seat_id, seat, phase, system, user, ctx, log, on_event=None):
     hint = ""
     if client.toolkit and client.toolkit.allow:
-        hint = ("\n你可以先调用工具查阅工作区文件；"
+        known = bool((ctx or {}).get("shared_material")) or (
+            client.memory and client.memory.has(seat_id))
+        lead = ("如需核实细节或补充查阅其他资料，可调用工作区工具；"
+                "查完后最终必须只输出一个合法 JSON 对象。\n"
+                if known else
+                "你可以先调用工具查阅工作区文件；"
                 "查完后最终必须只输出一个合法 JSON 对象。\n")
+        hint = "\n" + lead
         if client.memory and client.memory.has(seat_id):
             hint += "你已保留此前的对话与工具结果，请勿重复查阅已读过的同一文件。\n"
     first = user + hint
@@ -1082,7 +1140,11 @@ def ask_text(client, seat_id, seat, phase, system, user, ctx, log, on_event=None
         return raw
     hint = ""
     if client.toolkit and client.toolkit.allow:
-        hint = "\n你可以先调用工具查阅工作区文件，然后输出 Markdown 正文。\n"
+        known = bool((ctx or {}).get("shared_material")) or (
+            client.memory and client.memory.has(seat_id))
+        hint = ("\n如需核实细节或补充查阅其他资料，可调用工作区工具，然后输出 Markdown 正文。\n"
+                if known else
+                "\n你可以先调用工具查阅工作区文件，然后输出 Markdown 正文。\n")
         if client.memory and client.memory.has(seat_id):
             hint += "你已保留此前的对话与工具结果，请勿重复查阅已读过的同一文件。\n"
     while True:
@@ -1495,15 +1557,19 @@ def run(args, cfg=None, progress=None):
         print("[P1] 跳过（checkpoint）")
 
     def _make_position_job(sid, on_event=None):
-        u = (f"[PHASE:position]\n主题:\n{topic}\n{bg_block}"
+        shared = build_shared_block(client.shared_pack())
+        u = (f"[PHASE:position]\n主题:\n{topic}\n{bg_block}" + shared +
              f"\n论题列表:\n{json.dumps(motions, ensure_ascii=False)}\n"
              "\n请以你的独立视角对每个论题表态。只输出 JSON：\n"
              '{"positions": [{"motion_id": "M1", "stance": "support|oppose|neutral",'
              ' "core_argument": "...", "confidence": 0-100}],'
              ' "overall_take": "一句话总判断"}')
+        ctx = {"experts": experts, "motions": motions.get("motions", [])}
+        if shared:
+            ctx["shared_material"] = True
         return ask_json(client, sid, expert_seat(sid), "position",
                         expert_seat(sid)["persona"], u,
-                        {"experts": experts, "motions": motions.get("motions", [])}, tr, on_event=on_event)
+                        ctx, tr, on_event=on_event)
 
     if start_phase <= 2:
         control.check()
