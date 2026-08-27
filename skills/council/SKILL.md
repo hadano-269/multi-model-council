@@ -24,7 +24,7 @@ description: 多模型研究议会：一个主持人 + 多个异构专家对议�
 1. **绝不自己扮演专家或主持人输出观点**——所有实质内容必须来自 council_* 工具的真实产出。
 2. LIVE 模式消耗真实 token；LIVE 启动前向用户口头确认一次（用户明确说"正式跑/上真模型"时视为已确认）。连通性验证一律 `dry_run: true`。
 3. 发起后立即把返回的 session id 与 out 目录告知用户，然后按下方节奏轮询。
-4. 用户没指定专家席位时省略 experts/reviewers（=全部）；一次紧凑可用低成本组合如 `expert_qwen,expert_mimo`。
+4. 用户没指定专家席位时省略 experts/reviewers（=全部）；成本敏感时先 council_seats 看阵容，只挑两三个专家席组紧凑会。
 
 ## debate 流程
 

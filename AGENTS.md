@@ -6,12 +6,12 @@
 
 ```bash
 python council.py --list                 # 列席位
-python council.py --ping expert_glm      # 单席连通性测试
+python council.py --ping expert_kimi      # 单席连通性测试
 python council.py "议题" --dry-run       # 零成本 mock 全流程（改完代码先跑这个）
 python council.py "议题" --file bg_c3g.md           # 正式会诊
 python council.py --resume out/<session>            # 从 checkpoint.json 续跑
-python council.py --mode review --scheme 方案.md --author expert_glm --reviewers expert_qwen "需求"  # 方案评审模式
-python council.py --mode review --scheme 方案.md --scheme-existing --discuss 讨论区 --author expert_glm "需求"  # 从既有方案起步（跳过 A0，不覆盖原文）
+python council.py --mode review --scheme 方案.md --author expert_claude --reviewers expert_kimi,expert_gpt "需求"  # 方案评审模式
+python council.py --mode review --scheme 方案.md --scheme-existing --discuss 讨论区 --author expert_claude "需求"  # 从既有方案起步（跳过 A0，不覆盖原文）
 python gui.py                            # 或双击 start_gui.bat（自动补装依赖）
 ```
 

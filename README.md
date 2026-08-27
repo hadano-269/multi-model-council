@@ -125,10 +125,15 @@ JSON 内 Windows 路径反斜杠需转义（`\\`）；改完配置重启客户�
 
 | 席位 | 模型 | 通道 | 人设定位 |
 |------|------|------|----------|
-| moderator / moderator_p5 | deepseek-v4-flash | OpenCode Go | 拆题/找分歧/终局裁决（联动席位） |
-| expert_qwen | qwen3.7-plus | OpenCode Go (anthropic 协议) | 工程可行性 |
-| expert_mimo | mimo-v2.5 | OpenCode Go | 工程可行性 |
-| expert_glm | glm-5.3flash | OpenCode Go | 独立研究员 |
+| moderator / moderator_p5 | glm-5.3 | OpenCode Go | 拆题/找分歧/终局裁决（联动席位） |
+| expert_kimi | kimi-k3 | OpenCode Go | 实验设计师 |
+| expert_dsv4 | deepseek-v4-pro | OpenCode Go | 边界条件分析师 |
+| expert_gpt | gpt-5 | OpenCode Go (anthropic 协议) | 工程可行性 |
+| expert_claude | claude-opus-5 | OpenCode Go | 独立研究员 |
+
+> 默认席位为**展示组合**：实际可用性取决于你的聚合通道（OpenCode Zen / 火山方舟等）提供的模型清单。
+> 请按需替换 `config.yaml` 的 `seats` 段中的 model/endpoint——同一通道里填它支持的任意模型即可，
+> `python council.py --list` 可随时核对你本机的有效阵容。
 
 席位在 `config.yaml` 的 `seats` 段配置，可增删改名。
 
@@ -151,7 +156,7 @@ cd council
 python council.py --list
 
 # 单席位连通性测试
-python council.py --ping expert_glm
+python council.py --ping expert_kimi
 
 # 零成本流程验证（mock 所有调用）
 python council.py "议题" --dry-run
@@ -160,7 +165,7 @@ python council.py "议题" --dry-run
 python council.py "议题" --file 背景材料.md
 
 # 只用部分专家
-python council.py "议题" --experts expert_grok,expert_dsv4
+python council.py "议题" --experts expert_kimi,expert_dsv4
 
 # 实时进度控制
 python council.py "议题" --quiet        # 静默，仅最终汇总
@@ -175,10 +180,10 @@ python council.py "议题" --no-tools
 python council.py --resume out/20260826_172252_某标题
 
 # 方案评审（主笔写方案 → 多轮评审/打分 → 改稿）
-python council.py --mode review --scheme 方案.md --discuss 讨论区 --author expert_glm --reviewers expert_qwen,expert_mimo "需求描述"
+python council.py --mode review --scheme 方案.md --discuss 讨论区 --author expert_claude --reviewers expert_kimi,expert_gpt "需求描述"
 
 # 从既有方案起步：跳过主笔初稿，直接评审，不覆盖原文；改稿前自动备份旧版到讨论区（方案_v1.md、…）
-python council.py --mode review --scheme 方案.md --scheme-existing --discuss 讨论区 --author expert_glm "需求描述"
+python council.py --mode review --scheme 方案.md --scheme-existing --discuss 讨论区 --author expert_claude "需求描述"
 
 # 会话开始即注入补充需求（与运行中 GUI「插入」等效；注入后从下一阶段起持续可见，由主笔写进方案）
 python council.py --mode review --scheme 方案.md --inject "客户新增：支持多主办方" "需求描述"
@@ -213,7 +218,7 @@ out/<YYYYmmdd_HHMMSS_议题标题>/
 - 专家席失败 → 标记缺席继续；主持人失败 → 终止。
 - 每次调用重试 3 次（指数退避），仅可重试状态码重试，4xx 参数类错误立即失败。
 - `--max-calls N` 为单会话调用数护栏（默认 80）。
-- 同源偏差缓解：moderator 与 expert_grok 同源时，verdict 强制输出 `self_conflict_note`。
+- 同源偏差缓解：议会中存在与主持人同源（同厂商/同基座模型）席位时，verdict 强制输出 `self_conflict_note`。
 - 工作区工具（默认关闭）：全局白名单 `read_file` / `list_dir` / `grep`，路径限制在 `tools.workspace` 内；openai / anthropic 席位可在给出 JSON 前先查文件。`responses` 协议不接工具。`--no-tools` 强制关。
 - 共享材料包：主持人 P1 读取的工具原文按目标去重（同文件留最新版）、单项截断 6000 字符、总量封顶 24000 字符后，随 P2 注入每位专家的首条消息；只转未经加工的原文，不做主持人解读，避免锚定专家独立表态。后续阶段经各席历史自动可见；此时工具提示变为「如需核实再调用」，专家可按需补充查阅。
 - GUI：运行中途可取消整场或跳过某席；失败可手动重试；设置页可编辑人设、单席/全部 Ping；顶栏与裁决记录 token 输入/输出计数（不换算金额）。`--resume` 或 GUI「续跑」从 `checkpoint.json` 下一阶段接着打。
