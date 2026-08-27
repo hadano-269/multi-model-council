@@ -6,6 +6,7 @@
 
 ```bash
 python council.py --list                 # 列席位
+python council.py --wizard               # 安装向导（交互问答；可接 --wizard-profile 无头档案）
 python council.py --ping expert_kimi      # 单席连通性测试
 python council.py "议题" --dry-run       # 零成本 mock 全流程（改完代码先跑这个）
 python council.py "议题" --file bg_c3g.md           # 正式会诊

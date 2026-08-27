@@ -1869,6 +1869,10 @@ def main():
                     help="方案评审：方案文件已存在，跳过主笔初稿直接进评审，不覆盖原方案")
     ap.add_argument("--inject", help="方案评审：会话开始即注入的补充需求文本"
                     "（等价于运行中插入）")
+    ap.add_argument("--wizard", action="store_true",
+                    help="交互式安装向导：主持人/端点/密钥/专家数量与职责预设问答")
+    ap.add_argument("--wizard-profile", metavar="FILE",
+                    help="无头应用安装档案（YAML/JSON，AI Agent 通道）")
     ap.add_argument("--dry-run", action="store_true",
                     help="mock 所有模型调用，零成本验证流程")
     ap.add_argument("--quiet", action="store_true", help="静默模式，不显示实时进度")
@@ -1877,6 +1881,13 @@ def main():
     ap.add_argument("--ping", metavar="SEAT", help="对单席位做连通性测试后退出")
     args = ap.parse_args()
 
+    if args.wizard or getattr(args, "wizard_profile", None):
+        import wizard as wizard_mod
+        if args.wizard:
+            wizard_mod.run_interactive(args.config)
+        else:
+            wizard_mod.run_profile(args.wizard_profile, args.config)
+        return
     if args.list:
         cfg = load_config(args.config)
         for sid, seat in cfg["seats"].items():

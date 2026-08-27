@@ -50,6 +50,37 @@ python council.py "冒烟测试" --dry-run --quiet    # 全 mock 流程，退出
 
 任一失败：回到 Step 1-2 排查版本与依赖。
 
+### Step 4.5 定制席位（向导）
+
+默认的六席阵容是展示组合。向你的用户逐条询问以下问题（问完二选一执行）：
+
+> 1. 谁当主持人？模型名叫什么？
+> 2. 主持人走哪个通道？OpenCode Zen / 本地 CC Switch / 自定义 URL？
+> 3. 该通道的 API Key 是？（若没有，引导用户去控制台创建后再继续）
+> 4. 想要几个专家？每位分别叫什么名字？
+> 5. 每位专家的职责选一个预设：实验设计师 / 边界条件分析师 / 工程可行性评估人 / 独立研究员 / 方案主笔
+> 6. 每位专家的模型名、通道与 API Key 同样确认一遍
+
+执行方式二选一：
+
+- 让用户自己在新终端跑 `python council.py --wizard`，交互回答同一组问题；
+- 或由你把答案整理成 profile 文件后无头应用：
+
+```yaml
+version: 1
+moderator: { model: glm-5.3, endpoint_id: opencode_go }
+experts:
+  - { name: kimi_expert, role_preset: designer_experiments,
+      model: kimi-k3, endpoint_id: opencode_go }
+```
+
+```bash
+python council.py --wizard-profile profile.yaml   # 读取→校验→原子写入 config.yaml
+```
+
+安全约定：profile 与对话中都不放明文 key——key 只通过环境变量提供；
+向导发现某变量未设置时会在 notes 中列出待办命令。
+
 ### Step 5 注册 MCP server
 
 服务入口是仓库根目录的 `mcp_server.py`（stdio JSON-RPC），工具共五个：`council_seats` / `council_start` / `council_status` / `council_verdict` / `council_cancel`。将 `<REPO_DIR>` 与 `<PYTHON>` 替换为本机绝对路径。
@@ -139,11 +170,16 @@ JSON 内 Windows 路径反斜杠需转义（`\\`）；改完配置重启客户�
 
 ## 首次配置
 
-所有 API Key 一律走环境变量，`config.yaml` 不存任何真实密钥（`${ENV:-默认值}` 语法支持内联兜底，默认值建议留空）：
+最省事的方式是先跑安装向导（问答式生成席位配置）：
+
+```bash
+python council.py --wizard     # 也可用 --wizard-profile <file> 无头应用
+```
+
+所有 API Key 一律走环境变量，`config.yaml` 不存任何真实密钥（`${ENV:-默认值}` 语法支持内联兜底，默认值建议留空）。手动配置时按通道处理：
 
 1. **CC Switch**：把本地代理的实际地址填进 `config.yaml` 的 `endpoints.ccswitch.base_url`（占位 `http://127.0.0.1:3000/v1`）。若代理校验 key，设环境变量 `setx CC_SWITCH_API_KEY "..."`。
 2. **OpenCode Go**：`setx GO_API_KEY "..."`（Zen 控制台复制），设置后重开终端生效。
-3. **火山方舟**：`setx ARK_API_KEY "ark-..."`，设置后重开终端生效。
 
 真实调用前会做统一预检（`guard_api_keys`）：缺失的 key 会按端点逐个报错提示；文件中若误写疑似明文密钥会直接拦截。`--dry-run` 不需要任何 key。
 
