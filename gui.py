@@ -934,7 +934,11 @@ class App(ctk.CTk):
                                           text_color=C_RETRY)
             return
         from tkinter import messagebox
-        problems, cfg = self.collect()
+        try:
+            problems, cfg, _bridges = self.collect()
+        except Exception as e:
+            messagebox.showerror("启动失败", f"收集配置时出错：{e}", parent=self)
+            return
         if problems:
             messagebox.showerror("配置有误", "\n".join(problems), parent=self)
             return
