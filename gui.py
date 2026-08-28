@@ -122,11 +122,12 @@ def load_raw():
 class SeatEditor(ctk.CTkFrame):
     def __init__(self, master, title, eff=None, model="", protocol="openai",
                  editable_name=False, on_delete=None, src_sid=None, orig=None,
-                 persona=""):
+                 persona="", ping_always=False):
         super().__init__(master, corner_radius=8, border_width=1,
                                  border_color=C_BORDER)
         self.src_sid = src_sid
         self.orig = orig or {"url": "", "key": ""}
+        self.ping_always = ping_always
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=(8, 0))
         bold = ctk.CTkFont(size=14, weight="bold")
@@ -204,13 +205,45 @@ class SeatEditor(ctk.CTkFrame):
     def _do_ping(self):
         self.ping_btn.configure(state="disabled")
         self.ping_lbl.configure(text="测试中…", text_color=C_DIM)
+        app = self.winfo_toplevel()
+        cfg = None
         try:
-            problems, cfg = self.collect()   # tkinter 只在主线程访问，避免跨线程冻结
+            _, cfg = app.collect()
+            cfg = council.expand_env(copy.deepcopy(cfg))
         except Exception as e:
             self._ping_done(False, str(e), 0)
             return
-        sid = self.src_sid or sanitize_sid(self.title_var.get(), set(RESERVED_SIDS))
-        if problems and sid not in (cfg.get("seats") or {}):
+        # 允许在未保存的即时填写后直接 Ping：cfg 里已有对应席位就算可用
+        sid = self.src_sid
+        seat = (cfg.get("seats") or {}).get(sid) if sid else None
+        if self.ping_always or sid == "moderator":
+            # 主持人额外兜底：cfg 里不存在时用当前输入框的临时配置
+            if not seat:
+                seat = {
+                    "role": "moderator",
+                    "model": self.model_var.get().strip() or "glm-5.3",
+                    "persona": self.get_persona(),
+                }
+                if self.url_var.get().strip():
+                    seat["base_url"] = self.url_var.get().strip()
+                if self.key_var.get().strip():
+                    seat["api_key"] = self.key_var.get().strip()
+                if not seat.get("base_url") or not seat.get("api_key"):
+                    # 回退到端点默认（expand_env 已在 cfg 端点中）
+                    ep = (cfg.get("endpoints") or {}).get(
+                        app.orig_seats.get(sid, {}).get("endpoint", "")) or {}
+                    if not seat.get("base_url"):
+                        seat["base_url"] = ep.get("base_url") or ""
+                    if not seat.get("api_key"):
+                        seat["api_key"] = ep.get("api_key") or ""
+                cfg = copy.deepcopy(cfg)
+                cfg.setdefault("seats", {})["moderator"] = seat
+                sid = "moderator"
+            if not (seat.get("base_url") or seat.get("api_key") or
+                    seat.get("model")):
+                self._ping_done(False, "配置不完整", 0)
+                return
+        elif sid not in (cfg.get("seats") or {}):
             self._ping_done(False, "配置不完整", 0)
             return
 
@@ -219,6 +252,7 @@ class SeatEditor(ctk.CTkFrame):
             self.after(0, lambda: self._ping_done(ok, msg, elapsed))
 
         threading.Thread(target=work, daemon=True).start()
+
 
 
     def _ping_done(self, ok, msg, elapsed):
@@ -498,7 +532,8 @@ class App(ctk.CTk):
             self.mod_slot, "moderator", eff=mod_eff,
             model=mod_seat.get("model", ""),
             orig={"url": mod_eff["url"], "key": mod_eff["key"]},
-            persona=mod_seat.get("persona") or "")
+            persona=mod_seat.get("persona") or "",
+            ping_always=True)
         self.mod_editor.pack(fill="x")
         for sid, seat in self.orig_seats.items():
             if sid in RESERVED_SIDS:
@@ -884,7 +919,7 @@ class App(ctk.CTk):
         try:
             problems, cfg = self.collect()
         except Exception as e:
-            messagebox.showerror("启动失败", f"收集配置时出错：{e}", parent=self)
+            messagebox.showerror("收集失败", str(e), parent=self)
             return
         if problems:
             messagebox.showerror("配置有误", "\n".join(problems), parent=self)
