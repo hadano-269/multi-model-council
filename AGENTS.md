@@ -26,7 +26,7 @@ python gui.py                            # 或双击 start_gui.bat（自动补�
 - `mcp_server.py` — 供 OpenCode 等客户端调用的 MCP server，包装 council 后台跑；双模式参数见 TOOLS 注册表。
 - `README.md` 分两部分：第一部分是给 LLM Agent 的自主安装手册（上传 GitHub 后供模型自装），第二部分才是人类向项目说明；`skills/council/SKILL.md` 教 LLM 触发/轮询 council 工具。改安装步骤或工具参数时两处要同步。
 - `tools.py` — 工作区只读工具（read_file/list_dir/grep），路径严格限制在 `tools.workspace` 内。
-- `config.yaml` — 席位/端点/人设；`${ENV:-default}` 语法支持环境变量覆盖内联 key。
+- `config.yaml` — 席位/端点/人设；**已 gitignore，明文存放真实 API Key 是设计内行为**（模板见 `config.example.yaml`）。`guard_api_keys`（council.py，接入 run/ping/review 三入口）只拦截"端点 api_key 为空"；严禁把含真实 key 的 config.yaml 提交或粘贴到对话/日志。
 - `out/<YYYYmmdd_HHMMSS_标题>/` — 每次会话独立目录：`transcript.md`、`verdict.json`、`p1..p5` 阶段文件、`status.json`（CLI/GUI/MCP 共用的进度）、`checkpoint.json`。
 
 ## 关键约定
@@ -45,6 +45,6 @@ python gui.py                            # 或双击 start_gui.bat（自动补�
 
 - **mcp_server.py**：stdout 只能走 JSON-RPC；stderr 必须在 `import council` 之前重定向到 `mcp_debug.log`（OpenCode 握手前不读 stderr，否则死锁）。改动时不可破坏该顺序。
 - **BaiduSyncdisk 同步**：可能产生 `config_冲突文件_*.yaml` 之类的冲突副本——它们不是权威配置，勿编辑、勿当作依据；权威文件是 `config.yaml`。
-- **config.yaml 不存任何真实 key**：一律 `${ENV:-默认值}` 引用环境变量（本机已 `setx ARK_API_KEY` / `GO_API_KEY`）。真实调用前 `guard_api_keys`（council.py，接入 run/ping/review 三入口）会拦截缺失 key 与文件中误写的明文 key；往 config.yaml 回填真实 key 属于回归，禁止提交。GUI 的 key 输入框走桥接（gui.py `resolve_key_var`）：新值 setx 进用户环境变量并注入当前进程，config 落模板，输入框永不回显已有密钥。
+- **config.yaml 明文存真实 key 是设计内行为**：该文件已被 gitignore，模板见 `config.example.yaml`。真实调用前 `guard_api_keys`（council.py，接入 run/ping/review 三入口）只拦截"端点 api_key 为空"。严禁把含真实 key 的 config.yaml 提交、粘贴到对话或日志；GUI 的 key 输入框回显已存值（打码+眼睛切换），保存直写该文件。
 - Windows 优先：`_enable_vt()`（ctypes 开 ANSI）、`start_gui.bat`、中文路径与编码（文件读写显式 `encoding="utf-8"`）。
 - `out/`、`__pycache__`、`.omo/`、`bg_c3g.md`（私有研究材料）、冲突副本、`mcp_debug.log` 均已被 `.gitignore` 排除，是生成物/外部/私有内容，不要手工整理或纳入提交。

@@ -60,8 +60,9 @@ description: 多模型研究议会：一个主持人 + 多个异构专家对议�
 ## 失败处理
 
 - 返回文本以中文错误开头的（席位不存在/scheme 缺失等）：修正参数重试，必要时先 council_seats。
-- status 显示 error 且 error 含 "api_key 为空"/"API Key 检查未通过"：告知用户设置环境变量
-  （见仓库 README.md 第一部分）后**重启客户端**再试，MCP 进程不会热加载环境变量。
+- status 显示 error 且 error 含 "api_key 为空"/"API Key 检查未通过"：引导用户编辑本机
+  `config.yaml`，把对应端点的 api_key 填上（该文件已 gitignore），保存后**重启客户端**再试，
+  MCP 进程不会热加载配置。
 - 会话由 CLI/GUI 发起的（提示"不在本 MCP 进程内"）：council_cancel 无法远程取消，
   但 council_status/council_verdict 仍可只读查询。
 - dry_run 全链路可零成本验证安装是否成功——新装环境先用它自检。

@@ -198,28 +198,18 @@ def load_config(path):
 
 
 # 疑似真实密钥的字面量（sk-/ark- 前缀的长串）；sk-ccswitch-local 这类短占位符不会命中
-_SECRET_LIKE = re.compile(r"\b(?:sk|ark)-[A-Za-z0-9_-]{24,}")
+# 密钥策略：config.yaml 已 gitignore，明文存放是设计内行为，不再做明文扫描。
 
 
 def check_api_keys(cfg, config_path=None):
     """启动预检：返回问题列表（空列表=通过）。
-    - 缺失：端点 api_key 展开后为空，需设置环境变量；
-    - 明文：扫描 config_path 的原始文本（不是展开后的值），捕获误写进文件的密钥。"""
+    config.yaml 已 gitignore，明文存放密钥是设计内的（模板见 config.example.yaml）；
+    这里只检查端点 api_key 是否为空——为空则挂在该端点上的席位 LIVE 必失败。"""
     problems = []
     for name, ep in (cfg.get("endpoints") or {}).items():
         if not str((ep or {}).get("api_key") or "").strip():
-            problems.append(f"端点 {name} 的 api_key 为空：请 setx 对应环境变量后"
-                            "重开终端（参见 README「首次配置」）。")
-    if config_path:
-        try:
-            raw = Path(config_path).read_text(encoding="utf-8")
-        except OSError:
-            raw = ""
-        for i, ln in enumerate(raw.splitlines(), 1):
-            hit = _SECRET_LIKE.search(ln)
-            if hit:
-                problems.append(f"config 第 {i} 行疑似明文密钥（{hit.group(0)[:6]}***）："
-                                "请改用 ${ENV:-} 环境变量写法，勿将真实 key 提交入库。")
+            problems.append(f"端点 {name} 的 api_key 为空：请在 config.yaml 中填写"
+                            "（该文件已被 gitignore 不入库）；仅 --dry-run 可留空。")
     return problems
 
 

@@ -19,3 +19,6 @@ config_冲突文件_*.yaml
 
 # 私有研究背景材料，不入库
 bg_c3g.md
+
+# 本机运行配置：含真实 API Key，绝不入库（模板见 config.example.yaml）
+config.yaml

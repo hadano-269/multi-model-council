@@ -29,16 +29,17 @@ pip install pyyaml
 
 GUI 才需要 customtkinter，Agent 场景可跳过。
 
-### Step 3 API Key → 环境变量（关键）
+### Step 3 配置密钥（直接写进本机 config.yaml）
 
-**仓库与 config.yaml 不含任何真实密钥**，缺 key 会在真实调用前被预检拦截并给出中文提示。向用户只需要问一件事："要用哪些模型通道？key 是什么？"——然后把 key 写进环境变量：
-例如
-| 端点 id | 环境变量 | 说明 |
-|---------|----------|------|
-| `opencode_go` | `GO_API_KEY` | OpenCode Zen 控制台获取 |
-| `ccswitch` | 可不设 | 本地 CC Switch 代理，默认占位 |
+`config.yaml` 已被 `.gitignore` 排除——**密钥明文写进该文件是设计内的，且永不进入 git**：
 
-Windows：`setx GO_API_KEY "sk-xxxx"`（写 profile/export 同理）。**只对新进程生效——注册完 MCP 必须重启客户端**。绝不把 key 写进任何文件、日志或对话正文。
+```bash
+cp config.example.yaml config.yaml     # Windows: copy config.example.yaml config.yaml
+```
+
+然后打开 `config.yaml`，把各端点的 `<在此粘贴你的Key>` 占位换成真实密钥（或之后在 GUI 设置页里填，效果相同）。
+
+**你是 AI Agent 时**：不要向用户索要密钥原文粘贴到对话里——引导用户自己编辑本机的 `config.yaml`（或用 GUI 设置页）填写即可。
 
 ### Step 4 无成本自检（不需要任何 key）
 
@@ -78,7 +79,7 @@ experts:
 python council.py --wizard-profile profile.yaml   # 读取→校验→原子写入 config.yaml
 ```
 
-安全约定：profile 与对话中都不放明文 key——key 只通过环境变量提供；
+安全约定：密钥只落在本机的 `config.yaml`（已被 gitignore）——不要把 key 粘贴到对话正文或日志里；profile 文件在本机，写 key 也不会入库。
 向导发现某变量未设置时会在 notes 中列出待办命令。
 
 ### Step 5 注册 MCP server
@@ -133,7 +134,7 @@ JSON 内 Windows 路径反斜杠需转义（`\\`）；改完配置重启客户�
 
 | 现象 | 处置 |
 |------|------|
-| `端点 xxx 的 api_key 为空` | 对应环境变量没设，或客户端注册后未重启 |
+| `端点 xxx 的 api_key 为空` | `config.yaml` 里对应端点的 key 还没填（该文件不入库，放心写明文） |
 | config 第 N 行疑似明文密钥 | 有人把真实 key 写回了 config.yaml——改为 `${ENV:-}` 引用；若已上云/入库视为泄漏，轮换之 |
 | MCP 连不上/握手卡死 | stdout 只允许 JSON-RPC；确认没有往 mcp_server.py 加 print 到 stdout |
 | 自写脚本调 MCP 时 `tools/call` 回包迟迟不到 | 先看 `mcp_debug.log`：若业务已完成（"完成，用时…"）而管道无响应，多为本机磁盘/同步盘对 `council.py` 冷加载的扫描拖慢——真客户端重试即可；自写验收器建议二进制管道 + 读线程 + 宽松超时 |
@@ -144,7 +145,7 @@ JSON 内 Windows 路径反斜杠需转义（`\\`）；改完配置重启客户�
 
 1. 不要自己扮演专家辩论；实质内容一律来自 council_* 工具产出。
 2. LIVE 会话消耗真实 token，启动前征得用户同意；连通性测试用 `dry_run: true`。
-3. 密钥只进出环境变量：不写文件、不打日志、不粘进对话正文。
+3. 密钥只写进本机 `config.yaml`（已被 gitignore）：不打日志、不粘进对话正文、不提交任何含 key 的文件。
 4. `out/`、`mcp_debug.log`、`.omo/` 是生成物；同步盘冲突副本不是权威配置。
 
 ---
@@ -177,12 +178,12 @@ JSON 内 Windows 路径反斜杠需转义（`\\`）；改完配置重启客户�
 python council.py --wizard     # 也可用 --wizard-profile <file> 无头应用
 ```
 
-所有 API Key 一律走环境变量，`config.yaml` 不存任何真实密钥（`${ENV:-默认值}` 语法支持内联兜底，默认值建议留空）。手动配置时按通道处理：
+手动配置两个常用通道：
 
-1. **CC Switch**：把本地代理的实际地址填进 `config.yaml` 的 `endpoints.ccswitch.base_url`（占位 `http://127.0.0.1:3000/v1`）。若代理校验 key，设环境变量 `setx CC_SWITCH_API_KEY "..."`。
-2. **OpenCode Go**：`setx GO_API_KEY "..."`（Zen 控制台复制），设置后重开终端生效。
+1. **CC Switch**：把本地代理的实际地址填进 `config.yaml` 的 `endpoints.ccswitch.base_url`（占位 `http://127.0.0.1:3000/v1`）。若代理校验 key，同样直接写在文件里。
+2. **OpenCode Go**：把 Zen 控制台的 key 写进 `endpoints.opencode_go.api_key`，保存即生效。
 
-真实调用前会做统一预检（`guard_api_keys`）：缺失的 key 会按端点逐个报错提示；文件中若误写疑似明文密钥会直接拦截。`--dry-run` 不需要任何 key。
+真实调用前会做统一预检（`guard_api_keys`）：哪个端点的 key 为空会按端点逐个报错提示。`--dry-run` 不需要任何 key。
 
 ## 用法
 
@@ -276,7 +277,7 @@ MCP server 为仓库根目录 `mcp_server.py`（stdio JSON-RPC），注册方式
 | `council_verdict` | 读裁决；未结束则返回当前进度 |
 | `council_cancel` | 取消本进程内正在跑的一场 |
 
-对 OpenCode 说「用议会讨论 xxx」或「用评审模式评审 xxx 方案」即可发起。进度同时写在 `out/<session>/status.json`，CLI / GUI / MCP 共用。改完配置后重启客户端；LIVE 会话同样受 API Key 环境变量预检约束。
+对 OpenCode 说「用议会讨论 xxx」或「用评审模式评审 xxx 方案」即可发起。进度同时写在 `out/<session>/status.json`，CLI / GUI / MCP 共用。改完配置后重启客户端；LIVE 会话前若 `config.yaml` 中某端点 key 为空会被预检拦截。
 
 ## GUI
 
@@ -287,5 +288,5 @@ pip install -r requirements.txt
 python gui.py
 ```
 
-- **设置页**：顶部「工作区工具」全局开关 + 工作区目录 + 三个只读工具勾选；主持人 + 专家席均可独立配置 Base URL / API Key / 模型名 / 协议（openai / anthropic）；专家可增删改名；「保存」写回 `config.yaml`（未改动的字段保留原样，含 `${ENV:-default}` 模板与各席 persona）。**API Key 特殊处理**：输入的新密钥写入用户环境变量（约定名 `GO_API_KEY`/`ARK_API_KEY` 等，未知端点按席位合成），config 只保留 `${VAR:-}` 引用模板，永不明文落盘；既有明文会在下次保存时自动迁移。
+- **设置页**：顶部「工作区工具」全局开关 + 工作区目录 + 三个只读工具勾选；主持人 + 专家席均可独立配置 Base URL / API Key / 模型名 / 协议（openai / anthropic）；专家可增删改名；「保存」写回 `config.yaml`（未改动的字段保留原样，含各席 persona）。**API Key**：输入框回显已保存的值（默认打码，眼睛按钮切换明文），保存后明文写入 `config.yaml`——该文件已被 gitignore，不会进入版本库。
 - **运行页**：可选「辩论议会」或「方案评审」；勾选「测试」为零费用 mock。方案评审需填方案路径、讨论区、主笔，可勾「既有方案」跳过主笔初稿（不覆盖原文）；运行中可「插入」额外需求（也可会前用 `--inject`），注入文字从下一阶段起持续生效，由主笔写进方案。

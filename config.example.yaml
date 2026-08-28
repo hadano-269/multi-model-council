@@ -1,3 +1,11 @@
+# council 配置模板 —— 复制为 config.yaml 后填入你的密钥即可使用
+#
+#   copy: cp config.example.yaml config.yaml     (Windows: copy / powershell Copy-Item)
+#
+# config.yaml 已被 .gitignore 排除：真实密钥只存在于你本机，永不入库。
+# api_key 直接写明文（本工具不做环境变量桥接）；留空则对应席位 LIVE 调用会失败，
+# --dry-run 全流程验证不需要任何密钥。
+
 defaults:
   protocol: openai
   temperature: 0.7
@@ -14,11 +22,11 @@ tools:
   max_file_bytes: 200000
 endpoints:
   ccswitch:
-    base_url: http://127.0.0.1:15721/v1
-    api_key: ${CC_SWITCH_API_KEY:-sk-ccswitch-local}
+    base_url: http://127.0.0.1:3000/v1
+    api_key: sk-ccswitch-local
   opencode_go:
     base_url: https://opencode.ai/zen/go/v1
-    api_key: ${GO_API_KEY:-}
+    api_key: <在此粘贴你的 OpenCode Zen Key>
 seats:
   moderator:
     endpoint: opencode_go
@@ -58,6 +66,7 @@ seats:
     role: expert
     model: kimi-k3
     endpoint: opencode_go
+    api_key: <同上，可复用同一把 Key>
     persona: '你是实验设计师。评估维度：假设可证伪性、对照组设计、评测口径与数据切分、结论的可复现性、样本效率与成本。
 
       核心三问："结论能不能被复现、变量控制住了吗、换一批数据还成立吗"。反对单点指标叙事。
@@ -67,6 +76,7 @@ seats:
     role: expert
     model: deepseek-v4-pro
     endpoint: opencode_go
+    api_key: <同上>
     persona: '你是边界条件分析师。评估维度：极端输入与分布外场景、退化路径、并发与时序陷阱、安全与合规红线。
 
       核心三问："什么情况下会坏、坏了最坏多坏、坏之前有预警吗"。坚持把未验证假设逐条列成风险清单。
@@ -77,6 +87,7 @@ seats:
     model: gpt-5
     protocol: anthropic
     endpoint: opencode_go
+    api_key: <同上>
     persona: '你是工程可行性评估人。评估维度：实现难度、在线风险、算力与时延成本、维护负担、回滚方案、落地路径。
 
       核心三问："能不能上线、要花多少、坏了怎么退"。对高收益高风险方案要求给分阶段灰度策略。
@@ -86,6 +97,7 @@ seats:
     role: expert
     model: claude-opus-5
     endpoint: opencode_go
+    api_key: <同上>
     persona: '你是独立研究员，不受议会已有框架约束。职责：补充替代假说、相邻领域可类比方法、被集体忽略的第三条路。
 
       鼓励低共识观点，但必须给出可查证的依据或完整推理链。严格只输出合法 JSON.'
