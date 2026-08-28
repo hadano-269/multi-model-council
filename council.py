@@ -21,6 +21,31 @@ from tools import TOOL_NAMES, ToolRunner, parse_tool_args, tool_detail
 BASE = Path(__file__).resolve().parent
 RETRYABLE = {408, 409, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529}
 
+# 温度不兼容的错误指纹：上游说不需要 temperature 时自动去参重发。
+TEMPERATURE_ERROR_HINTS = (
+    "invalid temperature", "unsupported parameter: temperature",
+    "unsupported value: temperature", "temperature is not supported",
+)
+
+# 已知固定温度模型：显式传 temperature 必被上游驳回，改由服务端默认处理。
+FIXED_TEMPERATURE_MODELS = frozenset()
+
+
+def _seat_temperature(model, temperature):
+    m = (model or "").lower()
+    if any(k in m for k in ("kimi-k3", "kimi_k3")):
+        return None
+    if m in FIXED_TEMPERATURE_MODELS:
+        return None
+    return temperature
+
+
+def _temperature_error_message(err):
+    s = str(err or "").lower()
+    if not any(h in s for h in TEMPERATURE_ERROR_HINTS):
+        return False
+    return "temperature" in s
+
 def _enable_vt():
     if os.name != "nt":
         return
@@ -459,7 +484,11 @@ class Client:
             self._emit(getattr(self._tls, "on_event", None), "usage", inn, str(out))
             return data
         except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:500]
+            detail = e.read().decode("utf-8", "replace")[:700]
+            if "temperature" in detail.lower():
+                al = detail.lower()
+                if any(h in al for h in TEMPERATURE_ERROR_HINTS):
+                    raise FatalSeatError(detail) from e
             if e.code in RETRYABLE:
                 raise ConnectionError(f"HTTP {e.code}: {detail}") from e
             raise FatalSeatError(f"HTTP {e.code}: {detail}") from e
@@ -497,7 +526,15 @@ class Client:
                 last_err = e
                 self._emit(on_event, "retry", attempt + 1, str(e)[:120])
                 if attempt < 2:
-                    time.sleep(2 * (2 ** attempt))
+                    wait = 1.0 if attempt == 0 else 2.0
+                    steps = int(wait * 2)
+                    for i in range(steps, 0, -1):
+                        remain = i * 0.5
+                        self._emit(on_event, "retry", attempt + 1,
+                                   f"重试 {attempt+1}/3 · {remain:.1f}s 后重试 · {str(e)[:50]}")
+                        time.sleep(0.5)
+                        if self.control and self.control.cancelled():
+                            raise Cancelled("用户取消")
         raise ConnectionError(f"重试 3 次仍失败: {last_err}")
 
     def chat(self, seat_id, seat, system, user, on_event=None):
@@ -633,12 +670,25 @@ class Client:
 
     def _openai_turn(self, ep, key, model, messages, max_tokens, temperature,
                      timeout, tools=None):
+        try:
+            return self._openai_turn_inner(
+                ep, key, model, messages, max_tokens, temperature, timeout, tools)
+        except FatalSeatError as e:
+            if _temperature_error_message(e):
+                return self._openai_turn_inner(
+                    ep, key, model, messages, max_tokens, None, timeout, tools)
+            raise
+
+    def _openai_turn_inner(self, ep, key, model, messages, max_tokens, temperature,
+                           timeout, tools=None):
         payload = {
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": temperature,
         }
+        t = _seat_temperature(model, temperature)
+        if t is not None:
+            payload["temperature"] = t
         if tools:
             payload["tools"] = tools
         data = self._post(
@@ -665,16 +715,29 @@ class Client:
             raise FatalSeatError(f"openai 响应结构异常: {json.dumps(data)[:400]}") from e
 
     def _responses(self, ep, key, model, system, user, max_tokens, temperature, timeout):
+        try:
+            return self._responses_inner(ep, key, model, system, user,
+                                         max_tokens, temperature, timeout)
+        except FatalSeatError as e:
+            if _temperature_error_message(e):
+                return self._responses_inner(ep, key, model, system, user,
+                                             max_tokens, None, timeout)
+            raise
+
+    def _responses_inner(self, ep, key, model, system, user, max_tokens, temperature, timeout):
+        body = {
+            "model": model,
+            "instructions": system,
+            "input": user,
+            "max_output_tokens": max_tokens,
+        }
+        t = _seat_temperature(model, temperature)
+        if t is not None:
+            body["temperature"] = t
         data = self._post(
             ep["base_url"].rstrip("/") + "/responses",
             {"Authorization": f"Bearer {key}"},
-            {
-                "model": model,
-                "instructions": system,
-                "input": user,
-                "max_output_tokens": max_tokens,
-                "temperature": temperature,
-            },
+            body,
             timeout,
         )
         try:
@@ -706,13 +769,26 @@ class Client:
 
     def _anthropic_turn(self, ep, key, model, system, messages, max_tokens,
                         temperature, timeout, tools=None):
+        try:
+            return self._anthropic_turn_inner(
+                ep, key, model, system, messages, max_tokens, temperature, timeout, tools)
+        except FatalSeatError as e:
+            if _temperature_error_message(e):
+                return self._anthropic_turn_inner(
+                    ep, key, model, system, messages, max_tokens, None, timeout, tools)
+            raise
+
+    def _anthropic_turn_inner(self, ep, key, model, system, messages, max_tokens,
+                              temperature, timeout, tools=None):
         payload = {
             "model": model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "system": system,
             "messages": messages,
         }
+        t = _seat_temperature(model, temperature)
+        if t is not None:
+            payload["temperature"] = t
         if tools:
             payload["tools"] = tools
         data = self._post(

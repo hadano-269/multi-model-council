@@ -326,10 +326,16 @@ class RunCard:
         st = info.get("status")
         el = int(info.get("elapsed") or 0)
         det = (info.get("detail") or "").replace("\n", " ")
-        if len(det) > 36:
-            det = det[:35] + "…"
-        self.time_lbl.configure(text=f"{el}s")
-        retryable = st in ("fail", "await_retry")
+        # 倒计时样式：重试 x/3 · 1.0s 后重试
+        m = re.match(r".*重试 (\d)/3 · (\d+\.?\d*)s 后重试.*", det)
+        countdown = None
+        if m:
+            countdown = f"{m.group(2)}s"
+        if len(det) > 38 and not countdown:
+            det = det[:37] + "…"
+        self.time_lbl.configure(text=f"{el}s" if not countdown else f"↻{countdown}")
+        retryable = st in ("fail", "await_retry") or (
+            st == "retrying" and countdown is not None)
         active = st in ("running", "retrying", "fail", "await_retry")
         self.retry_btn.configure(state="normal" if retryable else "disabled")
         self.skip_btn.configure(state="normal" if active else "disabled")
@@ -344,8 +350,10 @@ class RunCard:
             self.status.configure(text=f"{spin} 推理中", text_color=C_RUN)
             self.detail.configure(text=det, text_color=C_DIM)
         elif st == "retrying":
-            self.status.configure(text=f"↻ 重试 {info.get('attempt', 1)}/3",
-                                  text_color=C_RETRY)
+            label = f"↻ 重试 {info.get('attempt', 1)}/3"
+            if countdown:
+                label = f"↻ 重试 {info.get('attempt', 1)}/3 · {countdown}"
+            self.status.configure(text=label, text_color=C_RETRY)
             self.detail.configure(text=det, text_color=C_RETRY)
         elif st == "done":
             self.status.configure(text="✔ 完成", text_color=C_OK)
@@ -697,6 +705,14 @@ class App(ctk.CTk):
             new_seats[sid] = seat
 
         cfg["seats"] = new_seats
+        # 归一数值字段：避免 UI 将 "0.7" 存成字符串触发上游 invalid temperature
+        for sid, seat in cfg["seats"].items():
+            for k in ("temperature", "max_tokens", "timeout"):
+                if k in seat and isinstance(seat[k], str):
+                    try:
+                        seat[k] = float(seat[k]) if k == "temperature" else int(float(seat[k]))
+                    except (TypeError, ValueError):
+                        seat.pop(k, None)
         ui = dict(self.raw_cfg.get("ui") or {})
         ui["appearance"] = THEME_MODES.get(self.theme_var.get(), "dark")
         cfg["ui"] = ui
